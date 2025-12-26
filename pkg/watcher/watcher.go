@@ -8,12 +8,12 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/targc/kontrol/pkg/k8s"
 	"github.com/targc/kontrol/pkg/models"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/tools/clientcmd"
@@ -70,7 +70,7 @@ func (w *Watcher) watchResources(ctx context.Context) {
 }
 
 func (w *Watcher) watchResource(ctx context.Context, resource *models.Resource) {
-	gvr := w.getGVR(resource.Kind, resource.APIVersion)
+	gvr := k8s.GetGVR(resource.Kind, resource.APIVersion)
 
 	watcher, err := w.DynamicClient.Resource(gvr).Namespace(resource.Namespace).Watch(ctx, metav1.ListOptions{
 		FieldSelector: fmt.Sprintf("metadata.name=%s", resource.Name),
@@ -141,19 +141,4 @@ func (w *Watcher) handleDeleteEvent(resourceID uint) {
 	log.Printf("[Watcher] Resource %d deleted from K8s, removing current_state", resourceID)
 
 	w.DB.Unscoped().Where("resource_id = ?", resourceID).Delete(&models.ResourceCurrentState{})
-}
-
-func (w *Watcher) getGVR(kind, apiVersion string) schema.GroupVersionResource {
-	mapping := map[string]schema.GroupVersionResource{
-		"Deployment": {Group: "apps", Version: "v1", Resource: "deployments"},
-		"Service":    {Version: "v1", Resource: "services"},
-		"ConfigMap":  {Version: "v1", Resource: "configmaps"},
-		"Pod":        {Version: "v1", Resource: "pods"},
-	}
-
-	if gvr, ok := mapping[kind]; ok {
-		return gvr
-	}
-
-	return schema.GroupVersionResource{Resource: kind}
 }

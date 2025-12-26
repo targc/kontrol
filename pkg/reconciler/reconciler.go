@@ -7,13 +7,13 @@ import (
 	"log"
 	"time"
 
+	"github.com/targc/kontrol/pkg/k8s"
 	"github.com/targc/kontrol/pkg/models"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/tools/clientcmd"
@@ -109,7 +109,7 @@ func (r *Reconciler) reconcileResource(ctx context.Context, resource *models.Res
 	annotations["kontrol/revision"] = fmt.Sprintf("%d", resource.Revision)
 	obj.SetAnnotations(annotations)
 
-	gvr := r.getGVR(resource.Kind, resource.APIVersion)
+	gvr := k8s.GetGVR(resource.Kind, resource.APIVersion)
 
 	patchData, err := json.Marshal(obj)
 	if err != nil {
@@ -162,7 +162,7 @@ func (r *Reconciler) reconcileResource(ctx context.Context, resource *models.Res
 func (r *Reconciler) deleteResource(ctx context.Context, resource *models.Resource) {
 	log.Printf("[Reconciler] Deleting resource %d from K8s", resource.ID)
 
-	gvr := r.getGVR(resource.Kind, resource.APIVersion)
+	gvr := k8s.GetGVR(resource.Kind, resource.APIVersion)
 
 	// Delete from K8s
 	err := r.DynamicClient.Resource(gvr).Namespace(resource.Namespace).
@@ -177,19 +177,4 @@ func (r *Reconciler) deleteResource(ctx context.Context, resource *models.Resour
 	r.DB.Unscoped().Delete(resource)
 
 	log.Printf("[Reconciler] Successfully deleted resource %d", resource.ID)
-}
-
-func (r *Reconciler) getGVR(kind, apiVersion string) schema.GroupVersionResource {
-	mapping := map[string]schema.GroupVersionResource{
-		"Deployment": {Group: "apps", Version: "v1", Resource: "deployments"},
-		"Service":    {Version: "v1", Resource: "services"},
-		"ConfigMap":  {Version: "v1", Resource: "configmaps"},
-		"Pod":        {Version: "v1", Resource: "pods"},
-	}
-
-	if gvr, ok := mapping[kind]; ok {
-		return gvr
-	}
-
-	return schema.GroupVersionResource{Resource: kind}
 }
