@@ -24,14 +24,14 @@ func Load() *Config {
 	}
 
 	return &Config{
-		DBHost:     getEnv("DB_HOST", "localhost"),
-		DBPort:     getEnv("DB_PORT", "5432"),
-		DBUser:     getEnv("DB_USER", "postgres"),
-		DBPassword: getEnv("DB_PASSWORD", "postgres"),
-		DBName:     getEnv("DB_NAME", "kontrol"),
-		ClusterID:  getEnv("CLUSTER_ID", "default"),
-		ServerPort: getEnv("SERVER_PORT", "8080"),
-		Kubeconfig: getEnv("KUBECONFIG", os.Getenv("HOME")+"/.kube/config"),
+		DBHost:     getEnv("KONTROL_DB_HOST", "localhost"),
+		DBPort:     getEnv("KONTROL_DB_PORT", "5432"),
+		DBUser:     getEnv("KONTROL_DB_USER", "postgres"),
+		DBPassword: getEnv("KONTROL_DB_PASSWORD", "postgres"),
+		DBName:     getEnv("KONTROL_DB_NAME", "kontrol"),
+		ClusterID:  getEnv("KONTROL_CLUSTER_ID", "default"),
+		ServerPort: getEnv("KONTROL_SERVER_PORT", "8080"),
+		Kubeconfig: getEnv("KONTROL_KUBECONFIG", os.Getenv("HOME")+"/.kube/config"),
 	}
 }
 
