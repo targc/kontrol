@@ -46,16 +46,14 @@ func NewReconciler(db *gorm.DB, clusterID, kubeconfig string) (*Reconciler, erro
 func (r *Reconciler) Start(ctx context.Context) {
 	log.Println("[Reconciler] Starting reconciliation loop for cluster:", r.ClusterID)
 
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
 	for {
 		select {
 		case <-ctx.Done():
 			log.Println("[Reconciler] Stopping reconciliation loop")
 			return
-		case <-ticker.C:
+		default:
 			r.reconcile(ctx)
+			time.Sleep(30 * time.Second)
 		}
 	}
 }

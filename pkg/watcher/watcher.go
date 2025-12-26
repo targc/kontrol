@@ -46,16 +46,14 @@ func NewWatcher(db *gorm.DB, clusterID, kubeconfig string) (*Watcher, error) {
 func (w *Watcher) Start(ctx context.Context) {
 	log.Println("[Watcher] Starting watch for cluster:", w.ClusterID)
 
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
-
 	for {
 		select {
 		case <-ctx.Done():
 			log.Println("[Watcher] Stopping watch")
 			return
-		case <-ticker.C:
+		default:
 			w.watchResources(ctx)
+			time.Sleep(10 * time.Second)
 		}
 	}
 }
