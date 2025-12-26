@@ -83,8 +83,11 @@ func (w *Watcher) watchResource(ctx context.Context, resource *models.Resource) 
 	defer watcher.Stop()
 
 	for event := range watcher.ResultChan() {
-		if event.Type == watch.Modified || event.Type == watch.Added {
+		switch event.Type {
+		case watch.Modified, watch.Added:
 			w.handleEvent(event, resource.ID)
+		case watch.Deleted:
+			w.handleDeleteEvent(resource.ID)
 		}
 	}
 }
@@ -132,6 +135,12 @@ func (w *Watcher) handleEvent(event watch.Event, resourceID uint) {
 	tx.Commit()
 
 	log.Printf("[Watcher] Updated current_state for resource %d (gen=%d, rev=%d)", resourceID, generation, revision)
+}
+
+func (w *Watcher) handleDeleteEvent(resourceID uint) {
+	log.Printf("[Watcher] Resource %d deleted from K8s, removing current_state", resourceID)
+
+	w.DB.Unscoped().Where("resource_id = ?", resourceID).Delete(&models.ResourceCurrentState{})
 }
 
 func (w *Watcher) getGVR(kind, apiVersion string) schema.GroupVersionResource {
