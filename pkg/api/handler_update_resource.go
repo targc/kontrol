@@ -2,9 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"strconv"
 
 	"github.com/gofiber/fiber/v3"
-	"github.com/targc/kontrol/pkg/models"
 )
 
 type UpdateResourceRequest struct {
@@ -20,7 +20,13 @@ type UpdateResourceResponse struct {
 }
 
 func (s *Server) HandleUpdateResource(c fiber.Ctx) error {
-	id := c.Params("id")
+	idStr := c.Params("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid resource ID",
+		})
+	}
 
 	var req UpdateResourceRequest
 	if err := c.Bind().JSON(&req); err != nil {
@@ -29,36 +35,17 @@ func (s *Server) HandleUpdateResource(c fiber.Ctx) error {
 		})
 	}
 
-	var resource models.Resource
-	if err := s.DB.First(&resource, id).Error; err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": "Resource not found",
-		})
-	}
-
-	updates := map[string]interface{}{
-		"desired_spec": req.DesiredSpec,
-		"generation":   resource.Generation + 1,
-	}
-
-	if req.Revision != nil {
-		updates["revision"] = *req.Revision
-	} else {
-		updates["revision"] = resource.Revision + 1
-	}
-
-	if err := s.DB.Model(&resource).Updates(updates).Error; err != nil {
+	result, err := s.Manager.Update(uint(id), req.DesiredSpec, req.Revision)
+	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to update resource",
 		})
 	}
 
-	s.DB.First(&resource, id)
-
 	return c.JSON(UpdateResourceResponse{
-		ID:         resource.ID,
-		Generation: resource.Generation,
-		Revision:   resource.Revision,
+		ID:         result.Resource.ID,
+		Generation: result.Resource.Generation,
+		Revision:   result.Resource.Revision,
 		Status:     "pending",
 	})
 }

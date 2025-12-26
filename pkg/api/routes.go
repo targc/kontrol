@@ -3,15 +3,20 @@ package api
 import (
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/cors"
+	"github.com/targc/kontrol/pkg/manager"
 	"gorm.io/gorm"
 )
 
 type Server struct {
-	DB *gorm.DB
+	DB      *gorm.DB
+	Manager *manager.ResourceManager
 }
 
 func NewServer(db *gorm.DB) *Server {
-	return &Server{DB: db}
+	return &Server{
+		DB:      db,
+		Manager: manager.NewResourceManager(db),
+	}
 }
 
 func (s *Server) SetupRoutes(app *fiber.App) {

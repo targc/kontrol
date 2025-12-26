@@ -2,9 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"strconv"
 
 	"github.com/gofiber/fiber/v3"
-	"github.com/targc/kontrol/pkg/models"
 )
 
 type GetResourceResponse struct {
@@ -21,35 +21,40 @@ type GetResourceResponse struct {
 }
 
 func (s *Server) HandleGetResource(c fiber.Ctx) error {
-	id := c.Params("id")
+	idStr := c.Params("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid resource ID",
+		})
+	}
 
-	var resource models.Resource
-	if err := s.DB.First(&resource, id).Error; err != nil {
+	result, err := s.Manager.Get(uint(id))
+	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 			"error": "Resource not found",
 		})
 	}
 
-	var appliedState models.ResourceAppliedState
-	s.DB.Where("resource_id = ?", resource.ID).First(&appliedState)
-
 	status := "pending"
-	if appliedState.Generation == resource.Generation {
-		status = "synced"
-	} else if appliedState.Generation > 0 {
-		status = "out-of-sync"
+	if result.AppliedState != nil {
+		if result.AppliedState.Generation == result.Resource.Generation {
+			status = "synced"
+		} else {
+			status = "out-of-sync"
+		}
 	}
 
 	return c.JSON(GetResourceResponse{
-		ID:          resource.ID,
-		ClusterID:   resource.ClusterID,
-		Namespace:   resource.Namespace,
-		Kind:        resource.Kind,
-		Name:        resource.Name,
-		APIVersion:  resource.APIVersion,
-		DesiredSpec: resource.DesiredSpec,
-		Generation:  resource.Generation,
-		Revision:    resource.Revision,
+		ID:          result.Resource.ID,
+		ClusterID:   result.Resource.ClusterID,
+		Namespace:   result.Resource.Namespace,
+		Kind:        result.Resource.Kind,
+		Name:        result.Resource.Name,
+		APIVersion:  result.Resource.APIVersion,
+		DesiredSpec: result.Resource.DesiredSpec,
+		Generation:  result.Resource.Generation,
+		Revision:    result.Resource.Revision,
 		Status:      status,
 	})
 }

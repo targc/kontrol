@@ -1,8 +1,9 @@
 package api
 
 import (
+	"strconv"
+
 	"github.com/gofiber/fiber/v3"
-	"github.com/targc/kontrol/pkg/models"
 )
 
 type DeleteResourceResponse struct {
@@ -12,31 +13,22 @@ type DeleteResourceResponse struct {
 }
 
 func (s *Server) HandleDeleteResource(c fiber.Ctx) error {
-	id := c.Params("id")
-
-	var resource models.Resource
-	if err := s.DB.First(&resource, id).Error; err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": "Resource not found",
+	idStr := c.Params("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid resource ID",
 		})
 	}
 
-	resource.Generation++
-
-	if err := s.DB.Model(&resource).Update("generation", resource.Generation).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to mark resource for deletion",
-		})
-	}
-
-	if err := s.DB.Delete(&resource).Error; err != nil {
+	if err := s.Manager.Delete(uint(id)); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to delete resource",
 		})
 	}
 
 	return c.Status(fiber.StatusAccepted).JSON(DeleteResourceResponse{
-		ID:      resource.ID,
+		ID:      uint(id),
 		Status:  "deleting",
 		Message: "Resource marked for deletion",
 	})

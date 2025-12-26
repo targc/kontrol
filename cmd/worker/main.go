@@ -9,8 +9,7 @@ import (
 
 	"github.com/targc/kontrol/pkg/config"
 	"github.com/targc/kontrol/pkg/database"
-	"github.com/targc/kontrol/pkg/reconciler"
-	"github.com/targc/kontrol/pkg/watcher"
+	"github.com/targc/kontrol/pkg/worker"
 )
 
 func main() {
@@ -27,28 +26,19 @@ func main() {
 		log.Fatalf("Failed to run migrations: %v", err)
 	}
 
+	w, err := worker.NewWorker(db, cfg.ClusterID, cfg.Kubeconfig)
+	if err != nil {
+		log.Fatalf("Failed to create worker: %v", err)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	w, err := watcher.NewWatcher(db, cfg.ClusterID, cfg.Kubeconfig)
-	if err != nil {
-		log.Fatalf("Failed to create watcher: %v", err)
-	}
-
-	r, err := reconciler.NewReconciler(db, cfg.ClusterID, cfg.Kubeconfig)
-	if err != nil {
-		log.Fatalf("Failed to create reconciler: %v", err)
-	}
-
-	log.Printf("Worker starting for cluster: %s", cfg.ClusterID)
-
 	go w.Start(ctx)
-	go r.Start(ctx)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	<-sigChan
-	log.Println("Shutting down worker...")
-	cancel()
+	w.Stop()
 }

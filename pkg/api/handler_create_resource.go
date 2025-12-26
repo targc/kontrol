@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/gofiber/fiber/v3"
-	"github.com/targc/kontrol/pkg/models"
+	"github.com/targc/kontrol/pkg/manager"
 )
 
 type CreateResourceRequest struct {
@@ -34,30 +34,28 @@ func (s *Server) HandleCreateResource(c fiber.Ctx) error {
 		})
 	}
 
-	resource := models.Resource{
+	result, err := s.Manager.Create(manager.CreateResourceRequest{
 		ClusterID:   req.ClusterID,
 		Namespace:   req.Namespace,
 		Kind:        req.Kind,
 		Name:        req.Name,
 		APIVersion:  req.APIVersion,
 		DesiredSpec: req.DesiredSpec,
-		Generation:  1,
-		Revision:    1,
-	}
+	})
 
-	if err := s.DB.Create(&resource).Error; err != nil {
+	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to create resource",
 		})
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(CreateResourceResponse{
-		ID:         resource.ID,
-		ClusterID:  resource.ClusterID,
-		Namespace:  resource.Namespace,
-		Kind:       resource.Kind,
-		Name:       resource.Name,
-		Generation: resource.Generation,
-		Revision:   resource.Revision,
+		ID:         result.Resource.ID,
+		ClusterID:  result.Resource.ClusterID,
+		Namespace:  result.Resource.Namespace,
+		Kind:       result.Resource.Kind,
+		Name:       result.Resource.Name,
+		Generation: result.Resource.Generation,
+		Revision:   result.Resource.Revision,
 	})
 }
