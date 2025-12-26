@@ -10,6 +10,7 @@ import (
 	"github.com/targc/kontrol/pkg/models"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -60,11 +61,20 @@ func (r *Reconciler) Start(ctx context.Context) {
 }
 
 func (r *Reconciler) reconcile(ctx context.Context) {
-	var resources []models.Resource
-	r.DB.Where("cluster_id = ?", r.ClusterID).Find(&resources)
+	// Process active resources (deleted_at IS NULL)
+	var activeResources []models.Resource
+	r.DB.Where("cluster_id = ? AND deleted_at IS NULL", r.ClusterID).Find(&activeResources)
 
-	for _, resource := range resources {
+	for _, resource := range activeResources {
 		go r.reconcileResource(ctx, &resource)
+	}
+
+	// Process soft-deleted resources (need cleanup)
+	var deletedResources []models.Resource
+	r.DB.Unscoped().Where("cluster_id = ? AND deleted_at IS NOT NULL", r.ClusterID).Find(&deletedResources)
+
+	for _, resource := range deletedResources {
+		go r.deleteResource(ctx, &resource)
 	}
 }
 
@@ -147,6 +157,26 @@ func (r *Reconciler) reconcileResource(ctx context.Context, resource *models.Res
 	tx.Commit()
 
 	log.Printf("[Reconciler] Successfully applied resource %d (gen=%d, rev=%d)", resource.ID, resource.Generation, resource.Revision)
+}
+
+func (r *Reconciler) deleteResource(ctx context.Context, resource *models.Resource) {
+	log.Printf("[Reconciler] Deleting resource %d from K8s", resource.ID)
+
+	gvr := r.getGVR(resource.Kind, resource.APIVersion)
+
+	// Delete from K8s
+	err := r.DynamicClient.Resource(gvr).Namespace(resource.Namespace).
+		Delete(ctx, resource.Name, metav1.DeleteOptions{})
+
+	if err != nil && !errors.IsNotFound(err) {
+		log.Printf("[Reconciler] Failed to delete resource %d from K8s: %v", resource.ID, err)
+		return
+	}
+
+	// Hard delete from DB (CASCADE will delete applied_states and current_states)
+	r.DB.Unscoped().Delete(resource)
+
+	log.Printf("[Reconciler] Successfully deleted resource %d", resource.ID)
 }
 
 func (r *Reconciler) getGVR(kind, apiVersion string) schema.GroupVersionResource {
