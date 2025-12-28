@@ -42,5 +42,10 @@ func AutoMigrate(db *gorm.DB) error {
 
 	log.Println("Auto migration completed")
 
+	// Run database migrations (triggers, functions, etc.)
+	if err := RunMigrations(db); err != nil {
+		return fmt.Errorf("failed to run migrations: %w", err)
+	}
+
 	return nil
 }

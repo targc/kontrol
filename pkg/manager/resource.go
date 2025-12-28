@@ -113,7 +113,7 @@ func (m *ResourceManager) List(clusterID string) ([]*ResourceWithState, error) {
 	return result, nil
 }
 
-// Update updates a resource's desired spec and increments generation atomically
+// Update updates a resource's desired spec (generation auto-increments via DB trigger)
 func (m *ResourceManager) Update(id uint, desiredSpec json.RawMessage, revision *int) (*ResourceWithState, error) {
 	tx := m.DB.Begin()
 	defer tx.Rollback()
@@ -128,7 +128,6 @@ func (m *ResourceManager) Update(id uint, desiredSpec json.RawMessage, revision 
 
 	updates := map[string]interface{}{
 		"desired_spec": desiredSpec,
-		"generation":   resource.Generation + 1,
 	}
 
 	if revision != nil {
@@ -136,6 +135,8 @@ func (m *ResourceManager) Update(id uint, desiredSpec json.RawMessage, revision 
 	} else {
 		updates["revision"] = resource.Revision + 1
 	}
+
+	// Note: generation auto-increments via database trigger when desired_spec or revision changes
 
 	if err := tx.Model(&resource).Updates(updates).Error; err != nil {
 		return nil, fmt.Errorf("failed to update resource: %w", err)
@@ -148,7 +149,7 @@ func (m *ResourceManager) Update(id uint, desiredSpec json.RawMessage, revision 
 	return m.Get(id)
 }
 
-// Delete soft-deletes a resource atomically (increments generation then marks as deleted)
+// Delete soft-deletes a resource atomically (generation auto-increments via DB trigger)
 func (m *ResourceManager) Delete(id uint) error {
 	tx := m.DB.Begin()
 	defer tx.Rollback()
@@ -161,11 +162,7 @@ func (m *ResourceManager) Delete(id uint) error {
 		return fmt.Errorf("failed to get resource: %w", err)
 	}
 
-	resource.Generation++
-
-	if err := tx.Model(&resource).Update("generation", resource.Generation).Error; err != nil {
-		return fmt.Errorf("failed to mark resource for deletion: %w", err)
-	}
+	// Note: generation auto-increments via database trigger when deleted_at changes
 
 	if err := tx.Delete(&resource).Error; err != nil {
 		return fmt.Errorf("failed to delete resource: %w", err)
