@@ -25,7 +25,7 @@ func Load() *Config {
 		TablePrefix: getEnv("KONTROL_TABLE_PREFIX", ""),
 		ClusterID:   getEnv("KONTROL_CLUSTER_ID", "default"),
 		ServerPort:  getEnv("KONTROL_SERVER_PORT", "8080"),
-		Kubeconfig:  getEnv("KONTROL_KUBECONFIG", os.Getenv("HOME")+"/.kube/config"),
+		Kubeconfig:  getEnv("KONTROL_KUBECONFIG", ""),
 	}
 }
 
