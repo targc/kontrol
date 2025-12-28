@@ -16,7 +16,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/tools/clientcmd"
 )
 
 type Reconciler struct {
@@ -26,9 +25,9 @@ type Reconciler struct {
 }
 
 func NewReconciler(db *gorm.DB, clusterID, kubeconfig string) (*Reconciler, error) {
-	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+	config, err := k8s.BuildConfig(kubeconfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build kubeconfig: %w", err)
+		return nil, fmt.Errorf("failed to build kubernetes config: %w", err)
 	}
 
 	dynamicClient, err := dynamic.NewForConfig(config)
