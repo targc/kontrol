@@ -3,6 +3,7 @@ package manager
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -70,6 +71,44 @@ func (m *GlobalResourceManager) Get(ctx context.Context, id uuid.UUID) (*GlobalR
 	}
 
 	return m.buildGlobalResourceWithSyncStatus(ctx, &globalResource)
+}
+
+// GetByKindAndName retrieves a global resource by namespace, kind, and name
+func (m *GlobalResourceManager) GetByKindAndName(ctx context.Context, namespace, kind, name string) (*GlobalResourceWithSyncStatus, error) {
+	var gr models.GlobalResource
+
+	err := m.DB.
+		WithContext(ctx).
+		Where("namespace = ? AND kind = ? AND name = ?", namespace, kind, name).
+		First(&gr).
+		Error
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get global resource: %w", err)
+	}
+
+	return m.buildGlobalResourceWithSyncStatus(ctx, &gr)
+}
+
+// Upsert creates or updates a global resource based on namespace, kind, and name
+func (m *GlobalResourceManager) Upsert(ctx context.Context, req CreateGlobalResourceRequest) (*GlobalResourceWithSyncStatus, error) {
+	var existing models.GlobalResource
+
+	err := m.DB.
+		WithContext(ctx).
+		Where("namespace = ? AND kind = ? AND name = ?", req.Namespace, req.Kind, req.Name).
+		First(&existing).
+		Error
+
+	if err == nil {
+		return m.Update(ctx, existing.ID, req.DesiredSpec, nil)
+	}
+
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return m.Create(ctx, req)
+	}
+
+	return nil, fmt.Errorf("failed to check existing resource: %w", err)
 }
 
 // List retrieves all global resources with their sync status
