@@ -26,11 +26,13 @@ type Watcher struct {
 
 func NewWatcher(db *gorm.DB, clusterID, kubeconfig string) (*Watcher, error) {
 	config, err := k8s.BuildConfig(kubeconfig)
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to build kubernetes config: %w", err)
 	}
 
 	dynamicClient, err := dynamic.NewForConfig(config)
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to create dynamic client: %w", err)
 	}
@@ -59,7 +61,11 @@ func (w *Watcher) Start(ctx context.Context) {
 
 func (w *Watcher) watchResources(ctx context.Context) {
 	var resources []models.Resource
-	w.DB.Where("cluster_id = ?", w.ClusterID).Find(&resources)
+
+	w.DB.
+		WithContext(ctx).
+		Where("cluster_id = ?", w.ClusterID).
+		Find(&resources)
 
 	for _, resource := range resources {
 		go w.watchResource(ctx, &resource)
@@ -70,27 +76,30 @@ func (w *Watcher) watchResource(ctx context.Context, resource *models.Resource) 
 	gvr := k8s.GetGVR(resource.Kind, resource.APIVersion)
 
 	watcher, err := w.DynamicClient.Resource(gvr).Namespace(resource.Namespace).Watch(ctx, metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("metadata.name=%s", resource.Name),
+		FieldSelector:  fmt.Sprintf("metadata.name=%s", resource.Name),
 		TimeoutSeconds: func() *int64 { t := int64(30); return &t }(),
 	})
+
 	if err != nil {
 		log.Printf("[Watcher] Failed to watch resource %d: %v", resource.ID, err)
 		return
 	}
+
 	defer watcher.Stop()
 
 	for event := range watcher.ResultChan() {
 		switch event.Type {
 		case watch.Modified, watch.Added:
-			w.handleEvent(event, resource.ID)
+			w.handleEvent(ctx, event, resource.ID)
 		case watch.Deleted:
-			w.handleDeleteEvent(resource.ID)
+			w.handleDeleteEvent(ctx, resource.ID)
 		}
 	}
 }
 
-func (w *Watcher) handleEvent(event watch.Event, resourceID uint) {
+func (w *Watcher) handleEvent(ctx context.Context, event watch.Event, resourceID uint) {
 	obj, ok := event.Object.(*unstructured.Unstructured)
+
 	if !ok {
 		return
 	}
@@ -108,11 +117,13 @@ func (w *Watcher) handleEvent(event watch.Event, resourceID uint) {
 	generation, _ := strconv.Atoi(kontrolGeneration)
 	revision, _ := strconv.Atoi(kontrolRevision)
 
-	tx := w.DB.Begin()
+	tx := w.DB.WithContext(ctx).Begin()
 	defer tx.Rollback()
 
 	var currentState models.ResourceCurrentState
-	tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+
+	tx.
+		Clauses(clause.Locking{Strength: "UPDATE"}).
 		FirstOrCreate(&currentState, models.ResourceCurrentState{ResourceID: resourceID})
 
 	if currentState.K8sResourceVersion == k8sResourceVersion {
@@ -122,20 +133,26 @@ func (w *Watcher) handleEvent(event watch.Event, resourceID uint) {
 
 	specBytes, _ := json.Marshal(obj.Object["spec"])
 
-	tx.Model(&currentState).Updates(map[string]interface{}{
-		"spec":                 specBytes,
-		"generation":           generation,
-		"revision":             revision,
-		"k8s_resource_version": k8sResourceVersion,
-	})
+	tx.
+		Model(&currentState).
+		Updates(map[string]interface{}{
+			"spec":                 specBytes,
+			"generation":           generation,
+			"revision":             revision,
+			"k8s_resource_version": k8sResourceVersion,
+		})
 
 	tx.Commit()
 
 	log.Printf("[Watcher] Updated current_state for resource %d (gen=%d, rev=%d)", resourceID, generation, revision)
 }
 
-func (w *Watcher) handleDeleteEvent(resourceID uint) {
+func (w *Watcher) handleDeleteEvent(ctx context.Context, resourceID uint) {
 	log.Printf("[Watcher] Resource %d deleted from K8s, removing current_state", resourceID)
 
-	w.DB.Unscoped().Where("resource_id = ?", resourceID).Delete(&models.ResourceCurrentState{})
+	w.DB.
+		WithContext(ctx).
+		Unscoped().
+		Where("resource_id = ?", resourceID).
+		Delete(&models.ResourceCurrentState{})
 }

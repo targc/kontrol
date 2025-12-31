@@ -34,11 +34,17 @@ func (m *GlobalResourceManager) Create(ctx context.Context, req CreateGlobalReso
 		Revision:    1,
 	}
 
-	if err := tx.Create(&globalResource).Error; err != nil {
+	err := tx.
+		Create(&globalResource).
+		Error
+
+	if err != nil {
 		return nil, fmt.Errorf("failed to create global resource: %w", err)
 	}
 
-	if err := tx.Commit().Error; err != nil {
+	err = tx.Commit().Error
+
+	if err != nil {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
@@ -48,7 +54,13 @@ func (m *GlobalResourceManager) Create(ctx context.Context, req CreateGlobalReso
 // Get retrieves a global resource by ID with its sync status
 func (m *GlobalResourceManager) Get(ctx context.Context, id uint) (*GlobalResourceWithSyncStatus, error) {
 	var globalResource models.GlobalResource
-	if err := m.DB.WithContext(ctx).First(&globalResource, id).Error; err != nil {
+
+	err := m.DB.
+		WithContext(ctx).
+		First(&globalResource, id).
+		Error
+
+	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("global resource not found")
 		}
@@ -61,16 +73,24 @@ func (m *GlobalResourceManager) Get(ctx context.Context, id uint) (*GlobalResour
 // List retrieves all global resources with their sync status
 func (m *GlobalResourceManager) List(ctx context.Context) ([]*GlobalResourceWithSyncStatus, error) {
 	var globalResources []models.GlobalResource
-	if err := m.DB.WithContext(ctx).Find(&globalResources).Error; err != nil {
+
+	err := m.DB.
+		WithContext(ctx).
+		Find(&globalResources).
+		Error
+
+	if err != nil {
 		return nil, fmt.Errorf("failed to list global resources: %w", err)
 	}
 
 	result := make([]*GlobalResourceWithSyncStatus, len(globalResources))
 	for i, gr := range globalResources {
 		status, err := m.buildGlobalResourceWithSyncStatus(ctx, &gr)
+
 		if err != nil {
 			return nil, err
 		}
+
 		result[i] = status
 	}
 
@@ -83,7 +103,12 @@ func (m *GlobalResourceManager) Update(ctx context.Context, id uint, desiredSpec
 	defer tx.Rollback()
 
 	var globalResource models.GlobalResource
-	if err := tx.First(&globalResource, id).Error; err != nil {
+
+	err := tx.
+		First(&globalResource, id).
+		Error
+
+	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("global resource not found")
 		}
@@ -100,11 +125,18 @@ func (m *GlobalResourceManager) Update(ctx context.Context, id uint, desiredSpec
 		updates["revision"] = globalResource.Revision + 1
 	}
 
-	if err := tx.Model(&globalResource).Updates(updates).Error; err != nil {
+	err = tx.
+		Model(&globalResource).
+		Updates(updates).
+		Error
+
+	if err != nil {
 		return nil, fmt.Errorf("failed to update global resource: %w", err)
 	}
 
-	if err := tx.Commit().Error; err != nil {
+	err = tx.Commit().Error
+
+	if err != nil {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
@@ -117,18 +149,29 @@ func (m *GlobalResourceManager) Delete(ctx context.Context, id uint) error {
 	defer tx.Rollback()
 
 	var globalResource models.GlobalResource
-	if err := tx.First(&globalResource, id).Error; err != nil {
+
+	err := tx.
+		First(&globalResource, id).
+		Error
+
+	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return fmt.Errorf("global resource not found")
 		}
 		return fmt.Errorf("failed to get global resource: %w", err)
 	}
 
-	if err := tx.Delete(&globalResource).Error; err != nil {
+	err = tx.
+		Delete(&globalResource).
+		Error
+
+	if err != nil {
 		return fmt.Errorf("failed to delete global resource: %w", err)
 	}
 
-	if err := tx.Commit().Error; err != nil {
+	err = tx.Commit().Error
+
+	if err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
@@ -137,24 +180,35 @@ func (m *GlobalResourceManager) Delete(ctx context.Context, id uint) error {
 
 // buildGlobalResourceWithSyncStatus builds a GlobalResourceWithSyncStatus from a GlobalResource
 func (m *GlobalResourceManager) buildGlobalResourceWithSyncStatus(ctx context.Context, gr *models.GlobalResource) (*GlobalResourceWithSyncStatus, error) {
-	// Get total clusters
 	var totalClusters int64
-	if err := m.DB.WithContext(ctx).Model(&models.Cluster{}).Count(&totalClusters).Error; err != nil {
+
+	err := m.DB.
+		WithContext(ctx).
+		Model(&models.Cluster{}).
+		Count(&totalClusters).
+		Error
+
+	if err != nil {
 		return nil, fmt.Errorf("failed to count clusters: %w", err)
 	}
 
-	// Get synced states for this global resource
 	var syncedStates []models.GlobalResourceSyncedState
-	m.DB.WithContext(ctx).Where("global_resource_id = ?", gr.ID).Find(&syncedStates)
 
-	// Build cluster statuses
+	m.DB.
+		WithContext(ctx).
+		Where("global_resource_id = ?", gr.ID).
+		Find(&syncedStates)
+
 	clusterStatuses := make([]ClusterSyncStatus, len(syncedStates))
 	syncedCount := 0
+
 	for i, state := range syncedStates {
 		isSynced := state.SyncedGeneration == gr.Generation
+
 		if isSynced {
 			syncedCount++
 		}
+
 		clusterStatuses[i] = ClusterSyncStatus{
 			ClusterID:        state.ClusterID,
 			SyncedGeneration: state.SyncedGeneration,

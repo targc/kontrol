@@ -19,6 +19,7 @@ func Connect(cfg *config.Config) (*gorm.DB, error) {
 			TablePrefix: cfg.TablePrefix,
 		},
 	})
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
@@ -39,14 +40,16 @@ func AutoMigrate(db *gorm.DB) error {
 		&models.GlobalResource{},
 		&models.GlobalResourceSyncedState{},
 	)
+
 	if err != nil {
 		return fmt.Errorf("failed to auto migrate: %w", err)
 	}
 
 	log.Println("Auto migration completed")
 
-	// Run database migrations (triggers, functions, etc.)
-	if err := RunMigrations(db); err != nil {
+	err = RunMigrations(db)
+
+	if err != nil {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
 

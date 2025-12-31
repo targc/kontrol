@@ -16,7 +16,9 @@ type Config struct {
 }
 
 func Load() *Config {
-	if err := godotenv.Load(); err != nil {
+	err := godotenv.Load()
+
+	if err != nil {
 		log.Println("No .env file found, using environment variables")
 	}
 
@@ -30,8 +32,11 @@ func Load() *Config {
 }
 
 func getEnv(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
+	value := os.Getenv(key)
+
+	if value != "" {
 		return value
 	}
+
 	return fallback
 }

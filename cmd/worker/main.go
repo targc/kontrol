@@ -18,21 +18,25 @@ func main() {
 	cfg := config.Load()
 
 	db, err := database.Connect(cfg)
+
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 
-	if err := database.AutoMigrate(db); err != nil {
-		log.Fatalf("Failed to run migrations: %v", err)
-	}
+	err = database.AutoMigrate(db)
 
-	w, err := worker.NewWorker(db, cfg.ClusterID, cfg.Kubeconfig)
 	if err != nil {
-		log.Fatalf("Failed to create worker: %v", err)
+		log.Fatalf("Failed to run migrations: %v", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	w, err := worker.NewWorker(ctx, db, cfg.ClusterID, cfg.Kubeconfig)
+
+	if err != nil {
+		log.Fatalf("Failed to create worker: %v", err)
+	}
 
 	go w.Start(ctx)
 

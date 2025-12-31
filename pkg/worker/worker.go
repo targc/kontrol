@@ -13,7 +13,6 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// Worker encapsulates the watcher, reconciler, and global syncer components
 type Worker struct {
 	DB           *gorm.DB
 	ClusterID    string
@@ -24,21 +23,29 @@ type Worker struct {
 	cancel       context.CancelFunc
 }
 
-// NewWorker creates a new Worker instance
-func NewWorker(db *gorm.DB, clusterID, kubeconfig string) (*Worker, error) {
-	// Register cluster on startup
+func NewWorker(ctx context.Context, db *gorm.DB, clusterID, kubeconfig string) (*Worker, error) {
 	cluster := models.Cluster{ID: clusterID}
-	if err := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&cluster).Error; err != nil {
+
+	err := db.
+		WithContext(ctx).
+		Clauses(clause.OnConflict{DoNothing: true}).
+		Create(&cluster).
+		Error
+
+	if err != nil {
 		return nil, fmt.Errorf("failed to register cluster: %w", err)
 	}
+
 	log.Printf("[Worker] Registered cluster: %s", clusterID)
 
 	w, err := watcher.NewWatcher(db, clusterID, kubeconfig)
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to create watcher: %w", err)
 	}
 
 	r, err := reconciler.NewReconciler(db, clusterID, kubeconfig)
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to create reconciler: %w", err)
 	}
@@ -55,7 +62,6 @@ func NewWorker(db *gorm.DB, clusterID, kubeconfig string) (*Worker, error) {
 	}, nil
 }
 
-// Start begins the worker's watcher, reconciler, and global syncer loops
 func (w *Worker) Start(ctx context.Context) error {
 	log.Printf("[Worker] Starting for cluster: %s", w.ClusterID)
 
@@ -72,7 +78,6 @@ func (w *Worker) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop gracefully stops the worker
 func (w *Worker) Stop() {
 	if w.cancel != nil {
 		log.Println("[Worker] Shutting down...")

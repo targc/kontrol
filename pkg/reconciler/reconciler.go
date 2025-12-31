@@ -26,11 +26,13 @@ type Reconciler struct {
 
 func NewReconciler(db *gorm.DB, clusterID, kubeconfig string) (*Reconciler, error) {
 	config, err := k8s.BuildConfig(kubeconfig)
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to build kubernetes config: %w", err)
 	}
 
 	dynamicClient, err := dynamic.NewForConfig(config)
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to create dynamic client: %w", err)
 	}
@@ -58,17 +60,24 @@ func (r *Reconciler) Start(ctx context.Context) {
 }
 
 func (r *Reconciler) reconcile(ctx context.Context) {
-	// Process active resources (deleted_at IS NULL)
 	var activeResources []models.Resource
-	r.DB.Where("cluster_id = ? AND deleted_at IS NULL", r.ClusterID).Find(&activeResources)
+
+	r.DB.
+		WithContext(ctx).
+		Where("cluster_id = ? AND deleted_at IS NULL", r.ClusterID).
+		Find(&activeResources)
 
 	for _, resource := range activeResources {
 		go r.reconcileResource(ctx, &resource)
 	}
 
-	// Process soft-deleted resources (need cleanup)
 	var deletedResources []models.Resource
-	r.DB.Unscoped().Where("cluster_id = ? AND deleted_at IS NOT NULL", r.ClusterID).Find(&deletedResources)
+
+	r.DB.
+		WithContext(ctx).
+		Unscoped().
+		Where("cluster_id = ? AND deleted_at IS NOT NULL", r.ClusterID).
+		Find(&deletedResources)
 
 	for _, resource := range deletedResources {
 		go r.deleteResource(ctx, &resource)
@@ -76,11 +85,13 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 }
 
 func (r *Reconciler) reconcileResource(ctx context.Context, resource *models.Resource) {
-	tx := r.DB.Begin()
+	tx := r.DB.WithContext(ctx).Begin()
 	defer tx.Rollback()
 
 	var appliedState models.ResourceAppliedState
-	tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+
+	tx.
+		Clauses(clause.Locking{Strength: "UPDATE"}).
 		FirstOrCreate(&appliedState, models.ResourceAppliedState{ResourceID: resource.ID})
 
 	if appliedState.Generation == resource.Generation {
@@ -98,9 +109,11 @@ func (r *Reconciler) reconcileResource(ctx context.Context, resource *models.Res
 	obj.SetNamespace(resource.Namespace)
 
 	annotations := obj.GetAnnotations()
+
 	if annotations == nil {
 		annotations = make(map[string]string)
 	}
+
 	annotations["kontrol/resource-id"] = fmt.Sprintf("%d", resource.ID)
 	annotations["kontrol/generation"] = fmt.Sprintf("%d", resource.Generation)
 	annotations["kontrol/revision"] = fmt.Sprintf("%d", resource.Revision)
@@ -109,12 +122,17 @@ func (r *Reconciler) reconcileResource(ctx context.Context, resource *models.Res
 	gvr := k8s.GetGVR(resource.Kind, resource.APIVersion)
 
 	patchData, err := json.Marshal(obj)
+
 	if err != nil {
 		log.Printf("[Reconciler] Failed to marshal resource %d: %v", resource.ID, err)
-		tx.Model(&appliedState).Updates(map[string]interface{}{
-			"status":        "error",
-			"error_message": err.Error(),
-		})
+
+		tx.
+			Model(&appliedState).
+			Updates(map[string]interface{}{
+				"status":        "error",
+				"error_message": err.Error(),
+			})
+
 		tx.Commit()
 		return
 	}
@@ -133,23 +151,29 @@ func (r *Reconciler) reconcileResource(ctx context.Context, resource *models.Res
 	if err != nil {
 		log.Printf("[Reconciler] Failed to apply resource %d: %v", resource.ID, err)
 		errMsg := err.Error()
-		tx.Model(&appliedState).Updates(map[string]interface{}{
-			"status":        "error",
-			"error_message": &errMsg,
-		})
+
+		tx.
+			Model(&appliedState).
+			Updates(map[string]interface{}{
+				"status":        "error",
+				"error_message": &errMsg,
+			})
+
 		tx.Commit()
 		return
 	}
 
 	resultBytes, _ := json.Marshal(obj)
 
-	tx.Model(&appliedState).Updates(map[string]interface{}{
-		"spec":          resultBytes,
-		"generation":    resource.Generation,
-		"revision":      resource.Revision,
-		"status":        "success",
-		"error_message": nil,
-	})
+	tx.
+		Model(&appliedState).
+		Updates(map[string]interface{}{
+			"spec":          resultBytes,
+			"generation":    resource.Generation,
+			"revision":      resource.Revision,
+			"status":        "success",
+			"error_message": nil,
+		})
 
 	tx.Commit()
 
@@ -161,7 +185,6 @@ func (r *Reconciler) deleteResource(ctx context.Context, resource *models.Resour
 
 	gvr := k8s.GetGVR(resource.Kind, resource.APIVersion)
 
-	// Delete from K8s
 	err := r.DynamicClient.Resource(gvr).Namespace(resource.Namespace).
 		Delete(ctx, resource.Name, metav1.DeleteOptions{})
 
@@ -170,8 +193,10 @@ func (r *Reconciler) deleteResource(ctx context.Context, resource *models.Resour
 		return
 	}
 
-	// Hard delete from DB (CASCADE will delete applied_states and current_states)
-	r.DB.Unscoped().Delete(resource)
+	r.DB.
+		WithContext(ctx).
+		Unscoped().
+		Delete(resource)
 
 	log.Printf("[Reconciler] Successfully deleted resource %d", resource.ID)
 }

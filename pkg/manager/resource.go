@@ -35,11 +35,17 @@ func (m *ResourceManager) Create(ctx context.Context, req CreateResourceRequest)
 		Revision:    1,
 	}
 
-	if err := tx.Create(&resource).Error; err != nil {
+	err := tx.
+		Create(&resource).
+		Error
+
+	if err != nil {
 		return nil, fmt.Errorf("failed to create resource: %w", err)
 	}
 
-	if err := tx.Commit().Error; err != nil {
+	err = tx.Commit().Error
+
+	if err != nil {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
@@ -49,7 +55,13 @@ func (m *ResourceManager) Create(ctx context.Context, req CreateResourceRequest)
 // Get retrieves a resource by ID with its applied and current states
 func (m *ResourceManager) Get(ctx context.Context, id uint) (*ResourceWithState, error) {
 	var resource models.Resource
-	if err := m.DB.WithContext(ctx).First(&resource, id).Error; err != nil {
+
+	err := m.DB.
+		WithContext(ctx).
+		First(&resource, id).
+		Error
+
+	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("resource not found")
 		}
@@ -57,10 +69,18 @@ func (m *ResourceManager) Get(ctx context.Context, id uint) (*ResourceWithState,
 	}
 
 	var appliedState models.ResourceAppliedState
-	m.DB.WithContext(ctx).Where("resource_id = ?", resource.ID).First(&appliedState)
+
+	m.DB.
+		WithContext(ctx).
+		Where("resource_id = ?", resource.ID).
+		First(&appliedState)
 
 	var currentState models.ResourceCurrentState
-	m.DB.WithContext(ctx).Where("resource_id = ?", resource.ID).First(&currentState)
+
+	m.DB.
+		WithContext(ctx).
+		Where("resource_id = ?", resource.ID).
+		First(&currentState)
 
 	result := &ResourceWithState{
 		Resource: resource,
@@ -80,23 +100,38 @@ func (m *ResourceManager) Get(ctx context.Context, id uint) (*ResourceWithState,
 // List retrieves all resources for a cluster with their states
 func (m *ResourceManager) List(ctx context.Context, clusterID string) ([]*ResourceWithState, error) {
 	var resources []models.Resource
-	query := m.DB.WithContext(ctx).Model(&models.Resource{})
+
+	query := m.DB.
+		WithContext(ctx).
+		Model(&models.Resource{})
 
 	if clusterID != "" {
 		query = query.Where("cluster_id = ?", clusterID)
 	}
 
-	if err := query.Find(&resources).Error; err != nil {
+	err := query.
+		Find(&resources).
+		Error
+
+	if err != nil {
 		return nil, fmt.Errorf("failed to list resources: %w", err)
 	}
 
 	result := make([]*ResourceWithState, len(resources))
 	for i, r := range resources {
 		var appliedState models.ResourceAppliedState
-		m.DB.WithContext(ctx).Where("resource_id = ?", r.ID).First(&appliedState)
+
+		m.DB.
+			WithContext(ctx).
+			Where("resource_id = ?", r.ID).
+			First(&appliedState)
 
 		var currentState models.ResourceCurrentState
-		m.DB.WithContext(ctx).Where("resource_id = ?", r.ID).First(&currentState)
+
+		m.DB.
+			WithContext(ctx).
+			Where("resource_id = ?", r.ID).
+			First(&currentState)
 
 		result[i] = &ResourceWithState{
 			Resource: r,
@@ -120,7 +155,12 @@ func (m *ResourceManager) Update(ctx context.Context, id uint, desiredSpec json.
 	defer tx.Rollback()
 
 	var resource models.Resource
-	if err := tx.First(&resource, id).Error; err != nil {
+
+	err := tx.
+		First(&resource, id).
+		Error
+
+	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("resource not found")
 		}
@@ -137,13 +177,18 @@ func (m *ResourceManager) Update(ctx context.Context, id uint, desiredSpec json.
 		updates["revision"] = resource.Revision + 1
 	}
 
-	// Note: generation auto-increments via database trigger when desired_spec or revision changes
+	err = tx.
+		Model(&resource).
+		Updates(updates).
+		Error
 
-	if err := tx.Model(&resource).Updates(updates).Error; err != nil {
+	if err != nil {
 		return nil, fmt.Errorf("failed to update resource: %w", err)
 	}
 
-	if err := tx.Commit().Error; err != nil {
+	err = tx.Commit().Error
+
+	if err != nil {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
@@ -156,20 +201,29 @@ func (m *ResourceManager) Delete(ctx context.Context, id uint) error {
 	defer tx.Rollback()
 
 	var resource models.Resource
-	if err := tx.First(&resource, id).Error; err != nil {
+
+	err := tx.
+		First(&resource, id).
+		Error
+
+	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return fmt.Errorf("resource not found")
 		}
 		return fmt.Errorf("failed to get resource: %w", err)
 	}
 
-	// Note: generation auto-increments via database trigger when deleted_at changes
+	err = tx.
+		Delete(&resource).
+		Error
 
-	if err := tx.Delete(&resource).Error; err != nil {
+	if err != nil {
 		return fmt.Errorf("failed to delete resource: %w", err)
 	}
 
-	if err := tx.Commit().Error; err != nil {
+	err = tx.Commit().Error
+
+	if err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
