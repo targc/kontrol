@@ -292,3 +292,14 @@ func (m *GlobalResourceManager) UpdateFromTemplate(ctx context.Context, id uuid.
 
 	return m.Update(ctx, id, spec, nil)
 }
+
+// DecompileToTemplate decompiles a global resource's spec into a template
+func (m *GlobalResourceManager) DecompileToTemplate(ctx context.Context, id uuid.UUID, tmpl Template) error {
+	gr, err := m.Get(ctx, id)
+
+	if err != nil {
+		return err
+	}
+
+	return tmpl.Decompile(gr.GlobalResource.DesiredSpec)
+}
