@@ -3,11 +3,12 @@ package models
 import (
 	"time"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
 type Resource struct {
-	ID         uint           `gorm:"primaryKey" json:"id"`
+	ID         uuid.UUID      `gorm:"type:uuid;primaryKey" json:"id"`
 	ClusterID  string         `gorm:"type:varchar(100);not null;index" json:"cluster_id"`
 	Namespace  string         `gorm:"type:varchar(255);not null" json:"namespace"`
 	Kind       string         `gorm:"type:varchar(255);not null" json:"kind"`

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/targc/kontrol/pkg/models"
 	"gorm.io/gorm"
 )
@@ -25,6 +26,7 @@ func (m *ResourceManager) Create(ctx context.Context, req CreateResourceRequest)
 	defer tx.Rollback()
 
 	resource := models.Resource{
+		ID:          uuid.Must(uuid.NewV7()),
 		ClusterID:   req.ClusterID,
 		Namespace:   req.Namespace,
 		Kind:        req.Kind,
@@ -53,7 +55,7 @@ func (m *ResourceManager) Create(ctx context.Context, req CreateResourceRequest)
 }
 
 // Get retrieves a resource by ID with its applied and current states
-func (m *ResourceManager) Get(ctx context.Context, id uint) (*ResourceWithState, error) {
+func (m *ResourceManager) Get(ctx context.Context, id uuid.UUID) (*ResourceWithState, error) {
 	var resource models.Resource
 
 	err := m.DB.
@@ -86,11 +88,11 @@ func (m *ResourceManager) Get(ctx context.Context, id uint) (*ResourceWithState,
 		Resource: resource,
 	}
 
-	if appliedState.ID != 0 {
+	if appliedState.ID != uuid.Nil {
 		result.AppliedState = &appliedState
 	}
 
-	if currentState.ID != 0 {
+	if currentState.ID != uuid.Nil {
 		result.CurrentState = &currentState
 	}
 
@@ -137,11 +139,11 @@ func (m *ResourceManager) List(ctx context.Context, clusterID string) ([]*Resour
 			Resource: r,
 		}
 
-		if appliedState.ID != 0 {
+		if appliedState.ID != uuid.Nil {
 			result[i].AppliedState = &appliedState
 		}
 
-		if currentState.ID != 0 {
+		if currentState.ID != uuid.Nil {
 			result[i].CurrentState = &currentState
 		}
 	}
@@ -150,7 +152,7 @@ func (m *ResourceManager) List(ctx context.Context, clusterID string) ([]*Resour
 }
 
 // Update updates a resource's desired spec (generation auto-increments via DB trigger)
-func (m *ResourceManager) Update(ctx context.Context, id uint, desiredSpec json.RawMessage, revision *int) (*ResourceWithState, error) {
+func (m *ResourceManager) Update(ctx context.Context, id uuid.UUID, desiredSpec json.RawMessage, revision *int) (*ResourceWithState, error) {
 	tx := m.DB.WithContext(ctx).Begin()
 	defer tx.Rollback()
 
@@ -196,7 +198,7 @@ func (m *ResourceManager) Update(ctx context.Context, id uint, desiredSpec json.
 }
 
 // Delete soft-deletes a resource atomically (generation auto-increments via DB trigger)
-func (m *ResourceManager) Delete(ctx context.Context, id uint) error {
+func (m *ResourceManager) Delete(ctx context.Context, id uuid.UUID) error {
 	tx := m.DB.WithContext(ctx).Begin()
 	defer tx.Rollback()
 
@@ -249,7 +251,7 @@ func (m *ResourceManager) CreateFromTemplate(ctx context.Context, clusterID stri
 }
 
 // UpdateFromTemplate updates a resource from a template
-func (m *ResourceManager) UpdateFromTemplate(ctx context.Context, id uint, tmpl Template) (*ResourceWithState, error) {
+func (m *ResourceManager) UpdateFromTemplate(ctx context.Context, id uuid.UUID, tmpl Template) (*ResourceWithState, error) {
 	_, _, _, _, spec, err := tmpl.Build()
 
 	if err != nil {

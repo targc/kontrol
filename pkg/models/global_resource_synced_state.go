@@ -3,12 +3,13 @@ package models
 import (
 	"time"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
 type GlobalResourceSyncedState struct {
-	ID               uint   `gorm:"primaryKey"`
-	GlobalResourceID uint   `gorm:"not null;uniqueIndex:idx_global_cluster"`
+	ID               uuid.UUID `gorm:"type:uuid;primaryKey"`
+	GlobalResourceID uuid.UUID `gorm:"type:uuid;not null;uniqueIndex:idx_global_cluster"`
 	ClusterID        string `gorm:"type:varchar(100);not null;uniqueIndex:idx_global_cluster"`
 	SyncedGeneration int    `gorm:"default:1;not null"`
 

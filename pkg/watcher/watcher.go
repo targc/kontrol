@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/targc/kontrol/pkg/k8s"
 	"github.com/targc/kontrol/pkg/models"
 	"gorm.io/gorm"
@@ -106,7 +107,7 @@ func (w *Watcher) handleEvent(ctx context.Context, event watch.Event) {
 		return
 	}
 
-	resourceID, err := strconv.ParseUint(resourceIDStr, 10, 64)
+	resourceID, err := uuid.Parse(resourceIDStr)
 
 	if err != nil {
 		return
@@ -114,20 +115,20 @@ func (w *Watcher) handleEvent(ctx context.Context, event watch.Event) {
 
 	switch event.Type {
 	case watch.Added, watch.Modified:
-		w.upsertCurrentState(ctx, uint(resourceID), obj)
+		w.upsertCurrentState(ctx, resourceID, obj)
 	case watch.Deleted:
-		w.deleteCurrentState(ctx, uint(resourceID))
+		w.deleteCurrentState(ctx, resourceID)
 	}
 }
 
-func (w *Watcher) upsertCurrentState(ctx context.Context, resourceID uint, obj *unstructured.Unstructured) {
+func (w *Watcher) upsertCurrentState(ctx context.Context, resourceID uuid.UUID, obj *unstructured.Unstructured) {
 	annotations := obj.GetAnnotations()
 	kontrolGeneration := annotations["kontrol/generation"]
 	kontrolRevision := annotations["kontrol/revision"]
 	k8sResourceVersion := obj.GetResourceVersion()
 
 	if kontrolGeneration == "" {
-		log.Printf("[Watcher] Missing kontrol/generation annotation on resource %d", resourceID)
+		log.Printf("[Watcher] Missing kontrol/generation annotation on resource %s", resourceID)
 		return
 	}
 
@@ -141,11 +142,21 @@ func (w *Watcher) upsertCurrentState(ctx context.Context, resourceID uint, obj *
 
 	err := tx.
 		Clauses(clause.Locking{Strength: "UPDATE"}).
-		FirstOrCreate(&currentState, models.ResourceCurrentState{ResourceID: resourceID}).
+		Where("resource_id = ?", resourceID).
+		First(&currentState).
 		Error
 
+	if err == gorm.ErrRecordNotFound {
+		currentState = models.ResourceCurrentState{
+			ID:         uuid.Must(uuid.NewV7()),
+			ResourceID: resourceID,
+		}
+
+		err = tx.Create(&currentState).Error
+	}
+
 	if err != nil {
-		log.Printf("[Watcher] Failed to get/create current_state for resource %d: %v", resourceID, err)
+		log.Printf("[Watcher] Failed to get/create current_state for resource %s: %v", resourceID, err)
 		return
 	}
 
@@ -153,7 +164,7 @@ func (w *Watcher) upsertCurrentState(ctx context.Context, resourceID uint, obj *
 		err = tx.Commit().Error
 
 		if err != nil {
-			log.Printf("[Watcher] Failed to commit transaction for resource %d: %v", resourceID, err)
+			log.Printf("[Watcher] Failed to commit transaction for resource %s: %v", resourceID, err)
 		}
 
 		return
@@ -162,7 +173,7 @@ func (w *Watcher) upsertCurrentState(ctx context.Context, resourceID uint, obj *
 	specBytes, err := json.Marshal(obj.Object["spec"])
 
 	if err != nil {
-		log.Printf("[Watcher] Failed to marshal spec for resource %d: %v", resourceID, err)
+		log.Printf("[Watcher] Failed to marshal spec for resource %s: %v", resourceID, err)
 		return
 	}
 
@@ -177,22 +188,22 @@ func (w *Watcher) upsertCurrentState(ctx context.Context, resourceID uint, obj *
 		Error
 
 	if err != nil {
-		log.Printf("[Watcher] Failed to update current_state for resource %d: %v", resourceID, err)
+		log.Printf("[Watcher] Failed to update current_state for resource %s: %v", resourceID, err)
 		return
 	}
 
 	err = tx.Commit().Error
 
 	if err != nil {
-		log.Printf("[Watcher] Failed to commit transaction for resource %d: %v", resourceID, err)
+		log.Printf("[Watcher] Failed to commit transaction for resource %s: %v", resourceID, err)
 		return
 	}
 
-	log.Printf("[Watcher] Updated current_state for resource %d (gen=%d, rev=%d)", resourceID, generation, revision)
+	log.Printf("[Watcher] Updated current_state for resource %s (gen=%d, rev=%d)", resourceID, generation, revision)
 }
 
-func (w *Watcher) deleteCurrentState(ctx context.Context, resourceID uint) {
-	log.Printf("[Watcher] Resource %d deleted from K8s, removing current_state", resourceID)
+func (w *Watcher) deleteCurrentState(ctx context.Context, resourceID uuid.UUID) {
+	log.Printf("[Watcher] Resource %s deleted from K8s, removing current_state", resourceID)
 
 	err := w.DB.
 		WithContext(ctx).
@@ -202,6 +213,6 @@ func (w *Watcher) deleteCurrentState(ctx context.Context, resourceID uint) {
 		Error
 
 	if err != nil {
-		log.Printf("[Watcher] Failed to delete current_state for resource %d: %v", resourceID, err)
+		log.Printf("[Watcher] Failed to delete current_state for resource %s: %v", resourceID, err)
 	}
 }

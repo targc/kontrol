@@ -7,6 +7,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/targc/kontrol/pkg/k8s"
 	"github.com/targc/kontrol/pkg/models"
 	"gorm.io/gorm"
@@ -104,11 +105,21 @@ func (r *Reconciler) reconcileResource(ctx context.Context, resource *models.Res
 
 	err := tx.
 		Clauses(clause.Locking{Strength: "UPDATE"}).
-		FirstOrCreate(&appliedState, models.ResourceAppliedState{ResourceID: resource.ID}).
+		Where("resource_id = ?", resource.ID).
+		First(&appliedState).
 		Error
 
+	if err == gorm.ErrRecordNotFound {
+		appliedState = models.ResourceAppliedState{
+			ID:         uuid.Must(uuid.NewV7()),
+			ResourceID: resource.ID,
+		}
+
+		err = tx.Create(&appliedState).Error
+	}
+
 	if err != nil {
-		log.Printf("[Reconciler] Failed to get/create applied_state for resource %d: %v", resource.ID, err)
+		log.Printf("[Reconciler] Failed to get/create applied_state for resource %s: %v", resource.ID, err)
 		return
 	}
 
@@ -116,13 +127,13 @@ func (r *Reconciler) reconcileResource(ctx context.Context, resource *models.Res
 		err = tx.Commit().Error
 
 		if err != nil {
-			log.Printf("[Reconciler] Failed to commit transaction for resource %d: %v", resource.ID, err)
+			log.Printf("[Reconciler] Failed to commit transaction for resource %s: %v", resource.ID, err)
 		}
 
 		return
 	}
 
-	log.Printf("[Reconciler] Reconciling resource %d (gen=%d, rev=%d)", resource.ID, resource.Generation, resource.Revision)
+	log.Printf("[Reconciler] Reconciling resource %s (gen=%d, rev=%d)", resource.ID, resource.Generation, resource.Revision)
 
 	var spec map[string]interface{}
 	json.Unmarshal(resource.DesiredSpec, &spec)
@@ -137,7 +148,7 @@ func (r *Reconciler) reconcileResource(ctx context.Context, resource *models.Res
 		annotations = make(map[string]string)
 	}
 
-	annotations["kontrol/resource-id"] = fmt.Sprintf("%d", resource.ID)
+	annotations["kontrol/resource-id"] = resource.ID.String()
 	annotations["kontrol/generation"] = fmt.Sprintf("%d", resource.Generation)
 	annotations["kontrol/revision"] = fmt.Sprintf("%d", resource.Revision)
 	obj.SetAnnotations(annotations)
@@ -147,7 +158,7 @@ func (r *Reconciler) reconcileResource(ctx context.Context, resource *models.Res
 	patchData, err := json.Marshal(obj)
 
 	if err != nil {
-		log.Printf("[Reconciler] Failed to marshal resource %d: %v", resource.ID, err)
+		log.Printf("[Reconciler] Failed to marshal resource %s: %v", resource.ID, err)
 
 		updateErr := tx.
 			Model(&appliedState).
@@ -158,14 +169,14 @@ func (r *Reconciler) reconcileResource(ctx context.Context, resource *models.Res
 			Error
 
 		if updateErr != nil {
-			log.Printf("[Reconciler] Failed to update applied_state for resource %d: %v", resource.ID, updateErr)
+			log.Printf("[Reconciler] Failed to update applied_state for resource %s: %v", resource.ID, updateErr)
 			return
 		}
 
 		commitErr := tx.Commit().Error
 
 		if commitErr != nil {
-			log.Printf("[Reconciler] Failed to commit transaction for resource %d: %v", resource.ID, commitErr)
+			log.Printf("[Reconciler] Failed to commit transaction for resource %s: %v", resource.ID, commitErr)
 		}
 
 		return
@@ -183,7 +194,7 @@ func (r *Reconciler) reconcileResource(ctx context.Context, resource *models.Res
 	)
 
 	if err != nil {
-		log.Printf("[Reconciler] Failed to apply resource %d: %v", resource.ID, err)
+		log.Printf("[Reconciler] Failed to apply resource %s: %v", resource.ID, err)
 		errMsg := err.Error()
 
 		updateErr := tx.
@@ -195,14 +206,14 @@ func (r *Reconciler) reconcileResource(ctx context.Context, resource *models.Res
 			Error
 
 		if updateErr != nil {
-			log.Printf("[Reconciler] Failed to update applied_state for resource %d: %v", resource.ID, updateErr)
+			log.Printf("[Reconciler] Failed to update applied_state for resource %s: %v", resource.ID, updateErr)
 			return
 		}
 
 		commitErr := tx.Commit().Error
 
 		if commitErr != nil {
-			log.Printf("[Reconciler] Failed to commit transaction for resource %d: %v", resource.ID, commitErr)
+			log.Printf("[Reconciler] Failed to commit transaction for resource %s: %v", resource.ID, commitErr)
 		}
 
 		return
@@ -222,22 +233,22 @@ func (r *Reconciler) reconcileResource(ctx context.Context, resource *models.Res
 		Error
 
 	if err != nil {
-		log.Printf("[Reconciler] Failed to update applied_state for resource %d: %v", resource.ID, err)
+		log.Printf("[Reconciler] Failed to update applied_state for resource %s: %v", resource.ID, err)
 		return
 	}
 
 	err = tx.Commit().Error
 
 	if err != nil {
-		log.Printf("[Reconciler] Failed to commit transaction for resource %d: %v", resource.ID, err)
+		log.Printf("[Reconciler] Failed to commit transaction for resource %s: %v", resource.ID, err)
 		return
 	}
 
-	log.Printf("[Reconciler] Successfully applied resource %d (gen=%d, rev=%d)", resource.ID, resource.Generation, resource.Revision)
+	log.Printf("[Reconciler] Successfully applied resource %s (gen=%d, rev=%d)", resource.ID, resource.Generation, resource.Revision)
 }
 
 func (r *Reconciler) deleteResource(ctx context.Context, resource *models.Resource) {
-	log.Printf("[Reconciler] Deleting resource %d from K8s", resource.ID)
+	log.Printf("[Reconciler] Deleting resource %s from K8s", resource.ID)
 
 	gvr := k8s.GetGVR(resource.Kind, resource.APIVersion)
 
@@ -245,7 +256,7 @@ func (r *Reconciler) deleteResource(ctx context.Context, resource *models.Resour
 		Delete(ctx, resource.Name, metav1.DeleteOptions{})
 
 	if err != nil && !errors.IsNotFound(err) {
-		log.Printf("[Reconciler] Failed to delete resource %d from K8s: %v", resource.ID, err)
+		log.Printf("[Reconciler] Failed to delete resource %s from K8s: %v", resource.ID, err)
 		return
 	}
 
@@ -256,9 +267,9 @@ func (r *Reconciler) deleteResource(ctx context.Context, resource *models.Resour
 		Error
 
 	if err != nil {
-		log.Printf("[Reconciler] Failed to delete resource %d from DB: %v", resource.ID, err)
+		log.Printf("[Reconciler] Failed to delete resource %s from DB: %v", resource.ID, err)
 		return
 	}
 
-	log.Printf("[Reconciler] Successfully deleted resource %d", resource.ID)
+	log.Printf("[Reconciler] Successfully deleted resource %s", resource.ID)
 }

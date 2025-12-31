@@ -3,12 +3,13 @@ package models
 import (
 	"time"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
 type ResourceCurrentState struct {
-	ID                  uint           `gorm:"primaryKey" json:"id"`
-	ResourceID          uint           `gorm:"not null;uniqueIndex" json:"resource_id"`
+	ID         uuid.UUID      `gorm:"type:uuid;primaryKey" json:"id"`
+	ResourceID uuid.UUID      `gorm:"type:uuid;not null;uniqueIndex" json:"resource_id"`
 
 	Spec                []byte         `gorm:"type:jsonb" json:"spec"`
 	Generation          int            `json:"generation"`

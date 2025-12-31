@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/targc/kontrol/pkg/models"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -97,6 +98,7 @@ func (g *GlobalSyncer) syncGlobalResource(ctx context.Context, gr *models.Global
 
 		err = tx.
 			Create(&models.GlobalResourceSyncedState{
+				ID:               uuid.Must(uuid.NewV7()),
 				GlobalResourceID: gr.ID,
 				ClusterID:        g.ClusterID,
 				SyncedGeneration: gr.Generation,
@@ -163,6 +165,7 @@ func (g *GlobalSyncer) syncGlobalResource(ctx context.Context, gr *models.Global
 
 func (g *GlobalSyncer) createResourceForCluster(tx *gorm.DB, gr *models.GlobalResource) error {
 	resource := &models.Resource{
+		ID:          uuid.Must(uuid.NewV7()),
 		ClusterID:   g.ClusterID,
 		Namespace:   gr.Namespace,
 		Kind:        gr.Kind,

@@ -3,11 +3,12 @@ package models
 import (
 	"time"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
 type GlobalResource struct {
-	ID         uint   `gorm:"primaryKey"`
+	ID         uuid.UUID `gorm:"type:uuid;primaryKey"`
 	Namespace  string `gorm:"type:varchar(255);not null"`
 	Kind       string `gorm:"type:varchar(255);not null"`
 	Name       string `gorm:"type:varchar(255);not null"`

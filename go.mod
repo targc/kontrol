@@ -3,6 +3,7 @@ module github.com/targc/kontrol
 go 1.25.4
 
 require (
+	github.com/google/uuid v1.6.0
 	github.com/sethvargo/go-envconfig v1.3.0
 	gorm.io/driver/postgres v1.6.0
 	gorm.io/gorm v1.31.1

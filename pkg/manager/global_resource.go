@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/targc/kontrol/pkg/models"
 	"gorm.io/gorm"
 )
@@ -25,6 +26,7 @@ func (m *GlobalResourceManager) Create(ctx context.Context, req CreateGlobalReso
 	defer tx.Rollback()
 
 	globalResource := models.GlobalResource{
+		ID:          uuid.Must(uuid.NewV7()),
 		Namespace:   req.Namespace,
 		Kind:        req.Kind,
 		Name:        req.Name,
@@ -52,7 +54,7 @@ func (m *GlobalResourceManager) Create(ctx context.Context, req CreateGlobalReso
 }
 
 // Get retrieves a global resource by ID with its sync status
-func (m *GlobalResourceManager) Get(ctx context.Context, id uint) (*GlobalResourceWithSyncStatus, error) {
+func (m *GlobalResourceManager) Get(ctx context.Context, id uuid.UUID) (*GlobalResourceWithSyncStatus, error) {
 	var globalResource models.GlobalResource
 
 	err := m.DB.
@@ -98,7 +100,7 @@ func (m *GlobalResourceManager) List(ctx context.Context) ([]*GlobalResourceWith
 }
 
 // Update updates a global resource's desired spec (generation auto-increments via DB trigger)
-func (m *GlobalResourceManager) Update(ctx context.Context, id uint, desiredSpec json.RawMessage, revision *int) (*GlobalResourceWithSyncStatus, error) {
+func (m *GlobalResourceManager) Update(ctx context.Context, id uuid.UUID, desiredSpec json.RawMessage, revision *int) (*GlobalResourceWithSyncStatus, error) {
 	tx := m.DB.WithContext(ctx).Begin()
 	defer tx.Rollback()
 
@@ -144,7 +146,7 @@ func (m *GlobalResourceManager) Update(ctx context.Context, id uint, desiredSpec
 }
 
 // Delete soft-deletes a global resource (generation auto-increments via DB trigger)
-func (m *GlobalResourceManager) Delete(ctx context.Context, id uint) error {
+func (m *GlobalResourceManager) Delete(ctx context.Context, id uuid.UUID) error {
 	tx := m.DB.WithContext(ctx).Begin()
 	defer tx.Rollback()
 
@@ -242,7 +244,7 @@ func (m *GlobalResourceManager) CreateFromTemplate(ctx context.Context, tmpl Tem
 }
 
 // UpdateFromTemplate updates a global resource from a template
-func (m *GlobalResourceManager) UpdateFromTemplate(ctx context.Context, id uint, tmpl Template) (*GlobalResourceWithSyncStatus, error) {
+func (m *GlobalResourceManager) UpdateFromTemplate(ctx context.Context, id uuid.UUID, tmpl Template) (*GlobalResourceWithSyncStatus, error) {
 	_, _, _, _, spec, err := tmpl.Build()
 
 	if err != nil {
