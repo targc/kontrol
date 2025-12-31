@@ -1,42 +1,28 @@
 package config
 
 import (
+	"context"
 	"log"
-	"os"
 
-	"github.com/joho/godotenv"
+	"github.com/sethvargo/go-envconfig"
 )
 
 type Config struct {
-	DBURL       string
-	TablePrefix string
-	ClusterID   string
-	ServerPort  string
-	Kubeconfig  string
+	DBURL       string `env:"KONTROL_DB_URL,required"`
+	TablePrefix string `env:"KONTROL_TABLE_PREFIX"`
+	ClusterID   string `env:"KONTROL_CLUSTER_ID,required"`
+	ServerPort  string `env:"KONTROL_SERVER_PORT,default=8080"`
+	Kubeconfig  string `env:"KONTROL_KUBECONFIG"`
 }
 
-func Load() *Config {
-	err := godotenv.Load()
+func Load(ctx context.Context) *Config {
+	var cfg Config
+
+	err := envconfig.Process(ctx, &cfg)
 
 	if err != nil {
-		log.Println("No .env file found, using environment variables")
+		log.Fatalf("failed to load config: %v", err)
 	}
 
-	return &Config{
-		DBURL:       getEnv("KONTROL_DB_URL", "postgres://postgres:postgres@localhost:5432/kontrol?sslmode=disable"),
-		TablePrefix: getEnv("KONTROL_TABLE_PREFIX", ""),
-		ClusterID:   getEnv("KONTROL_CLUSTER_ID", "default"),
-		ServerPort:  getEnv("KONTROL_SERVER_PORT", "8080"),
-		Kubeconfig:  getEnv("KONTROL_KUBECONFIG", ""),
-	}
-}
-
-func getEnv(key, fallback string) string {
-	value := os.Getenv(key)
-
-	if value != "" {
-		return value
-	}
-
-	return fallback
+	return &cfg
 }

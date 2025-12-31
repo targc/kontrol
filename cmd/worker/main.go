@@ -15,7 +15,10 @@ import (
 func main() {
 	log.Println("Starting Kontrol Worker...")
 
-	cfg := config.Load()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cfg := config.Load(ctx)
 
 	db, err := database.Connect(cfg)
 
@@ -28,9 +31,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to run migrations: %v", err)
 	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	w, err := worker.NewWorker(ctx, db, cfg.ClusterID, cfg.Kubeconfig)
 
