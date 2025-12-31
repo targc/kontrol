@@ -229,3 +229,32 @@ func (m *ResourceManager) Delete(ctx context.Context, id uint) error {
 
 	return nil
 }
+
+// CreateFromTemplate creates a resource from a template
+func (m *ResourceManager) CreateFromTemplate(ctx context.Context, clusterID string, tmpl Template) (*ResourceWithState, error) {
+	kind, apiVersion, namespace, name, spec, err := tmpl.Build()
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to build template %s: %w", tmpl.TemplateName(), err)
+	}
+
+	return m.Create(ctx, CreateResourceRequest{
+		ClusterID:   clusterID,
+		Namespace:   namespace,
+		Kind:        kind,
+		Name:        name,
+		APIVersion:  apiVersion,
+		DesiredSpec: spec,
+	})
+}
+
+// UpdateFromTemplate updates a resource from a template
+func (m *ResourceManager) UpdateFromTemplate(ctx context.Context, id uint, tmpl Template) (*ResourceWithState, error) {
+	_, _, _, _, spec, err := tmpl.Build()
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to build template %s: %w", tmpl.TemplateName(), err)
+	}
+
+	return m.Update(ctx, id, spec, nil)
+}

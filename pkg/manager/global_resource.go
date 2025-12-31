@@ -223,3 +223,31 @@ func (m *GlobalResourceManager) buildGlobalResourceWithSyncStatus(ctx context.Co
 		ClusterStatuses: clusterStatuses,
 	}, nil
 }
+
+// CreateFromTemplate creates a global resource from a template
+func (m *GlobalResourceManager) CreateFromTemplate(ctx context.Context, tmpl Template) (*GlobalResourceWithSyncStatus, error) {
+	kind, apiVersion, namespace, name, spec, err := tmpl.Build()
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to build template %s: %w", tmpl.TemplateName(), err)
+	}
+
+	return m.Create(ctx, CreateGlobalResourceRequest{
+		Namespace:   namespace,
+		Kind:        kind,
+		Name:        name,
+		APIVersion:  apiVersion,
+		DesiredSpec: spec,
+	})
+}
+
+// UpdateFromTemplate updates a global resource from a template
+func (m *GlobalResourceManager) UpdateFromTemplate(ctx context.Context, id uint, tmpl Template) (*GlobalResourceWithSyncStatus, error) {
+	_, _, _, _, spec, err := tmpl.Build()
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to build template %s: %w", tmpl.TemplateName(), err)
+	}
+
+	return m.Update(ctx, id, spec, nil)
+}
