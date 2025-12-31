@@ -32,7 +32,7 @@ func (g *GlobalSyncer) Start(ctx context.Context) {
 		case <-ctx.Done():
 			log.Println("[GlobalSyncer] Stopping global resource sync loop")
 			return
-		case <-time.After(30 * time.Second):
+		case <-time.After(10 * time.Second):
 			g.sync(ctx)
 		}
 	}
@@ -41,10 +41,16 @@ func (g *GlobalSyncer) Start(ctx context.Context) {
 func (g *GlobalSyncer) sync(ctx context.Context) {
 	var globalResources []models.GlobalResource
 
-	g.DB.
+	err := g.DB.
 		WithContext(ctx).
 		Where("deleted_at IS NULL").
-		Find(&globalResources)
+		Find(&globalResources).
+		Error
+
+	if err != nil {
+		log.Printf("[GlobalSyncer] Failed to fetch global resources: %v", err)
+		return
+	}
 
 	for _, gr := range globalResources {
 		g.syncGlobalResource(ctx, &gr)
@@ -52,11 +58,17 @@ func (g *GlobalSyncer) sync(ctx context.Context) {
 
 	var deletedGlobalResources []models.GlobalResource
 
-	g.DB.
+	err = g.DB.
 		WithContext(ctx).
 		Unscoped().
 		Where("deleted_at IS NOT NULL").
-		Find(&deletedGlobalResources)
+		Find(&deletedGlobalResources).
+		Error
+
+	if err != nil {
+		log.Printf("[GlobalSyncer] Failed to fetch deleted global resources: %v", err)
+		return
+	}
 
 	for _, gr := range deletedGlobalResources {
 		g.cleanupDeletedGlobalResource(ctx, &gr)
@@ -76,7 +88,12 @@ func (g *GlobalSyncer) syncGlobalResource(ctx context.Context, gr *models.Global
 		Error
 
 	if err == gorm.ErrRecordNotFound {
-		g.createResourceForCluster(tx, gr)
+		err = g.createResourceForCluster(tx, gr)
+
+		if err != nil {
+			log.Printf("[GlobalSyncer] Failed to create resource for global resource %d: %v", gr.ID, err)
+			return
+		}
 
 		err = tx.
 			Create(&models.GlobalResourceSyncedState{
@@ -91,7 +108,13 @@ func (g *GlobalSyncer) syncGlobalResource(ctx context.Context, gr *models.Global
 			return
 		}
 
-		tx.Commit()
+		err = tx.Commit().Error
+
+		if err != nil {
+			log.Printf("[GlobalSyncer] Failed to commit transaction for global resource %d: %v", gr.ID, err)
+			return
+		}
+
 		log.Printf("[GlobalSyncer] Created resource for global resource %d in cluster %s", gr.ID, g.ClusterID)
 		return
 	}
@@ -102,7 +125,12 @@ func (g *GlobalSyncer) syncGlobalResource(ctx context.Context, gr *models.Global
 	}
 
 	if syncedState.SyncedGeneration < gr.Generation {
-		g.updateResourceForCluster(tx, gr)
+		err = g.updateResourceForCluster(tx, gr)
+
+		if err != nil {
+			log.Printf("[GlobalSyncer] Failed to update resource for global resource %d: %v", gr.ID, err)
+			return
+		}
 
 		err = tx.
 			Model(&syncedState).
@@ -114,16 +142,26 @@ func (g *GlobalSyncer) syncGlobalResource(ctx context.Context, gr *models.Global
 			return
 		}
 
-		tx.Commit()
+		err = tx.Commit().Error
+
+		if err != nil {
+			log.Printf("[GlobalSyncer] Failed to commit transaction for global resource %d: %v", gr.ID, err)
+			return
+		}
+
 		log.Printf("[GlobalSyncer] Updated resource for global resource %d in cluster %s (gen %d -> %d)",
 			gr.ID, g.ClusterID, syncedState.SyncedGeneration, gr.Generation)
 		return
 	}
 
-	tx.Commit()
+	err = tx.Commit().Error
+
+	if err != nil {
+		log.Printf("[GlobalSyncer] Failed to commit transaction for global resource %d: %v", gr.ID, err)
+	}
 }
 
-func (g *GlobalSyncer) createResourceForCluster(tx *gorm.DB, gr *models.GlobalResource) {
+func (g *GlobalSyncer) createResourceForCluster(tx *gorm.DB, gr *models.GlobalResource) error {
 	resource := &models.Resource{
 		ClusterID:   g.ClusterID,
 		Namespace:   gr.Namespace,
@@ -134,10 +172,18 @@ func (g *GlobalSyncer) createResourceForCluster(tx *gorm.DB, gr *models.GlobalRe
 		Revision:    gr.Revision,
 	}
 
-	tx.Create(resource)
+	err := tx.
+		Create(resource).
+		Error
+
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func (g *GlobalSyncer) updateResourceForCluster(tx *gorm.DB, gr *models.GlobalResource) {
+func (g *GlobalSyncer) updateResourceForCluster(tx *gorm.DB, gr *models.GlobalResource) error {
 	var resource models.Resource
 
 	err := tx.
@@ -147,21 +193,26 @@ func (g *GlobalSyncer) updateResourceForCluster(tx *gorm.DB, gr *models.GlobalRe
 		Error
 
 	if err == gorm.ErrRecordNotFound {
-		g.createResourceForCluster(tx, gr)
-		return
+		return g.createResourceForCluster(tx, gr)
 	}
 
 	if err != nil {
-		log.Printf("[GlobalSyncer] Failed to find resource for global resource %d: %v", gr.ID, err)
-		return
+		return err
 	}
 
-	tx.
+	err = tx.
 		Model(&resource).
 		Updates(map[string]interface{}{
 			"desired_spec": gr.DesiredSpec,
 			"revision":     gr.Revision,
-		})
+		}).
+		Error
+
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (g *GlobalSyncer) cleanupDeletedGlobalResource(ctx context.Context, gr *models.GlobalResource) {
@@ -175,11 +226,17 @@ func (g *GlobalSyncer) cleanupDeletedGlobalResource(ctx context.Context, gr *mod
 		Error
 
 	if err == gorm.ErrRecordNotFound {
-		g.DB.
+		err = g.DB.
 			WithContext(ctx).
 			Unscoped().
 			Where("global_resource_id = ? AND cluster_id = ?", gr.ID, g.ClusterID).
-			Delete(&models.GlobalResourceSyncedState{})
+			Delete(&models.GlobalResourceSyncedState{}).
+			Error
+
+		if err != nil {
+			log.Printf("[GlobalSyncer] Failed to delete synced state for global resource %d: %v", gr.ID, err)
+		}
+
 		return
 	}
 
@@ -188,15 +245,27 @@ func (g *GlobalSyncer) cleanupDeletedGlobalResource(ctx context.Context, gr *mod
 		return
 	}
 
-	g.DB.
+	err = g.DB.
 		WithContext(ctx).
-		Delete(&resource)
+		Delete(&resource).
+		Error
 
-	g.DB.
+	if err != nil {
+		log.Printf("[GlobalSyncer] Failed to delete resource for global resource %d: %v", gr.ID, err)
+		return
+	}
+
+	err = g.DB.
 		WithContext(ctx).
 		Unscoped().
 		Where("global_resource_id = ? AND cluster_id = ?", gr.ID, g.ClusterID).
-		Delete(&models.GlobalResourceSyncedState{})
+		Delete(&models.GlobalResourceSyncedState{}).
+		Error
+
+	if err != nil {
+		log.Printf("[GlobalSyncer] Failed to delete synced state for global resource %d: %v", gr.ID, err)
+		return
+	}
 
 	log.Printf("[GlobalSyncer] Cleaned up resource for deleted global resource %d in cluster %s", gr.ID, g.ClusterID)
 }

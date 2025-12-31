@@ -62,10 +62,16 @@ func (w *Watcher) Start(ctx context.Context) {
 func (w *Watcher) watchResources(ctx context.Context) {
 	var resources []models.Resource
 
-	w.DB.
+	err := w.DB.
 		WithContext(ctx).
 		Where("cluster_id = ?", w.ClusterID).
-		Find(&resources)
+		Find(&resources).
+		Error
+
+	if err != nil {
+		log.Printf("[Watcher] Failed to fetch resources: %v", err)
+		return
+	}
 
 	for _, resource := range resources {
 		go w.watchResource(ctx, &resource)
@@ -122,27 +128,49 @@ func (w *Watcher) handleEvent(ctx context.Context, event watch.Event, resourceID
 
 	var currentState models.ResourceCurrentState
 
-	tx.
+	err := tx.
 		Clauses(clause.Locking{Strength: "UPDATE"}).
-		FirstOrCreate(&currentState, models.ResourceCurrentState{ResourceID: resourceID})
+		FirstOrCreate(&currentState, models.ResourceCurrentState{ResourceID: resourceID}).
+		Error
+
+	if err != nil {
+		log.Printf("[Watcher] Failed to get/create current_state for resource %d: %v", resourceID, err)
+		return
+	}
 
 	if currentState.K8sResourceVersion == k8sResourceVersion {
-		tx.Commit()
+		err = tx.Commit().Error
+
+		if err != nil {
+			log.Printf("[Watcher] Failed to commit transaction for resource %d: %v", resourceID, err)
+		}
+
 		return
 	}
 
 	specBytes, _ := json.Marshal(obj.Object["spec"])
 
-	tx.
+	err = tx.
 		Model(&currentState).
 		Updates(map[string]interface{}{
 			"spec":                 specBytes,
 			"generation":           generation,
 			"revision":             revision,
 			"k8s_resource_version": k8sResourceVersion,
-		})
+		}).
+		Error
 
-	tx.Commit()
+	if err != nil {
+		log.Printf("[Watcher] Failed to update current_state for resource %d: %v", resourceID, err)
+		return
+	}
+
+	err = tx.Commit().Error
+
+	if err != nil {
+		log.Printf("[Watcher] Failed to commit transaction for resource %d: %v", resourceID, err)
+		return
+	}
 
 	log.Printf("[Watcher] Updated current_state for resource %d (gen=%d, rev=%d)", resourceID, generation, revision)
 }
@@ -150,9 +178,14 @@ func (w *Watcher) handleEvent(ctx context.Context, event watch.Event, resourceID
 func (w *Watcher) handleDeleteEvent(ctx context.Context, resourceID uint) {
 	log.Printf("[Watcher] Resource %d deleted from K8s, removing current_state", resourceID)
 
-	w.DB.
+	err := w.DB.
 		WithContext(ctx).
 		Unscoped().
 		Where("resource_id = ?", resourceID).
-		Delete(&models.ResourceCurrentState{})
+		Delete(&models.ResourceCurrentState{}).
+		Error
+
+	if err != nil {
+		log.Printf("[Watcher] Failed to delete current_state for resource %d: %v", resourceID, err)
+	}
 }

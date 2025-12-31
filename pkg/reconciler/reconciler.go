@@ -54,7 +54,7 @@ func (r *Reconciler) Start(ctx context.Context) {
 			return
 		default:
 			r.reconcile(ctx)
-			time.Sleep(30 * time.Second)
+			time.Sleep(10 * time.Second)
 		}
 	}
 }
@@ -62,10 +62,16 @@ func (r *Reconciler) Start(ctx context.Context) {
 func (r *Reconciler) reconcile(ctx context.Context) {
 	var activeResources []models.Resource
 
-	r.DB.
+	err := r.DB.
 		WithContext(ctx).
 		Where("cluster_id = ? AND deleted_at IS NULL", r.ClusterID).
-		Find(&activeResources)
+		Find(&activeResources).
+		Error
+
+	if err != nil {
+		log.Printf("[Reconciler] Failed to fetch active resources: %v", err)
+		return
+	}
 
 	for _, resource := range activeResources {
 		go r.reconcileResource(ctx, &resource)
@@ -73,11 +79,17 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 
 	var deletedResources []models.Resource
 
-	r.DB.
+	err = r.DB.
 		WithContext(ctx).
 		Unscoped().
 		Where("cluster_id = ? AND deleted_at IS NOT NULL", r.ClusterID).
-		Find(&deletedResources)
+		Find(&deletedResources).
+		Error
+
+	if err != nil {
+		log.Printf("[Reconciler] Failed to fetch deleted resources: %v", err)
+		return
+	}
 
 	for _, resource := range deletedResources {
 		go r.deleteResource(ctx, &resource)
@@ -90,12 +102,23 @@ func (r *Reconciler) reconcileResource(ctx context.Context, resource *models.Res
 
 	var appliedState models.ResourceAppliedState
 
-	tx.
+	err := tx.
 		Clauses(clause.Locking{Strength: "UPDATE"}).
-		FirstOrCreate(&appliedState, models.ResourceAppliedState{ResourceID: resource.ID})
+		FirstOrCreate(&appliedState, models.ResourceAppliedState{ResourceID: resource.ID}).
+		Error
+
+	if err != nil {
+		log.Printf("[Reconciler] Failed to get/create applied_state for resource %d: %v", resource.ID, err)
+		return
+	}
 
 	if appliedState.Generation == resource.Generation {
-		tx.Commit()
+		err = tx.Commit().Error
+
+		if err != nil {
+			log.Printf("[Reconciler] Failed to commit transaction for resource %d: %v", resource.ID, err)
+		}
+
 		return
 	}
 
@@ -126,14 +149,25 @@ func (r *Reconciler) reconcileResource(ctx context.Context, resource *models.Res
 	if err != nil {
 		log.Printf("[Reconciler] Failed to marshal resource %d: %v", resource.ID, err)
 
-		tx.
+		updateErr := tx.
 			Model(&appliedState).
 			Updates(map[string]interface{}{
 				"status":        "error",
 				"error_message": err.Error(),
-			})
+			}).
+			Error
 
-		tx.Commit()
+		if updateErr != nil {
+			log.Printf("[Reconciler] Failed to update applied_state for resource %d: %v", resource.ID, updateErr)
+			return
+		}
+
+		commitErr := tx.Commit().Error
+
+		if commitErr != nil {
+			log.Printf("[Reconciler] Failed to commit transaction for resource %d: %v", resource.ID, commitErr)
+		}
+
 		return
 	}
 
@@ -152,20 +186,31 @@ func (r *Reconciler) reconcileResource(ctx context.Context, resource *models.Res
 		log.Printf("[Reconciler] Failed to apply resource %d: %v", resource.ID, err)
 		errMsg := err.Error()
 
-		tx.
+		updateErr := tx.
 			Model(&appliedState).
 			Updates(map[string]interface{}{
 				"status":        "error",
 				"error_message": &errMsg,
-			})
+			}).
+			Error
 
-		tx.Commit()
+		if updateErr != nil {
+			log.Printf("[Reconciler] Failed to update applied_state for resource %d: %v", resource.ID, updateErr)
+			return
+		}
+
+		commitErr := tx.Commit().Error
+
+		if commitErr != nil {
+			log.Printf("[Reconciler] Failed to commit transaction for resource %d: %v", resource.ID, commitErr)
+		}
+
 		return
 	}
 
 	resultBytes, _ := json.Marshal(obj)
 
-	tx.
+	err = tx.
 		Model(&appliedState).
 		Updates(map[string]interface{}{
 			"spec":          resultBytes,
@@ -173,9 +218,20 @@ func (r *Reconciler) reconcileResource(ctx context.Context, resource *models.Res
 			"revision":      resource.Revision,
 			"status":        "success",
 			"error_message": nil,
-		})
+		}).
+		Error
 
-	tx.Commit()
+	if err != nil {
+		log.Printf("[Reconciler] Failed to update applied_state for resource %d: %v", resource.ID, err)
+		return
+	}
+
+	err = tx.Commit().Error
+
+	if err != nil {
+		log.Printf("[Reconciler] Failed to commit transaction for resource %d: %v", resource.ID, err)
+		return
+	}
 
 	log.Printf("[Reconciler] Successfully applied resource %d (gen=%d, rev=%d)", resource.ID, resource.Generation, resource.Revision)
 }
@@ -193,10 +249,16 @@ func (r *Reconciler) deleteResource(ctx context.Context, resource *models.Resour
 		return
 	}
 
-	r.DB.
+	err = r.DB.
 		WithContext(ctx).
 		Unscoped().
-		Delete(resource)
+		Delete(resource).
+		Error
+
+	if err != nil {
+		log.Printf("[Reconciler] Failed to delete resource %d from DB: %v", resource.ID, err)
+		return
+	}
 
 	log.Printf("[Reconciler] Successfully deleted resource %d", resource.ID)
 }
