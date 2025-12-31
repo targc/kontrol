@@ -26,7 +26,7 @@ func (g *GlobalSyncer) Start(ctx context.Context) {
 	log.Println("[GlobalSyncer] Starting global resource sync loop for cluster:", g.ClusterID)
 
 	// Run immediately on start
-	g.sync()
+	g.sync(ctx)
 
 	for {
 		select {
@@ -34,31 +34,31 @@ func (g *GlobalSyncer) Start(ctx context.Context) {
 			log.Println("[GlobalSyncer] Stopping global resource sync loop")
 			return
 		case <-time.After(30 * time.Second):
-			g.sync()
+			g.sync(ctx)
 		}
 	}
 }
 
-func (g *GlobalSyncer) sync() {
+func (g *GlobalSyncer) sync(ctx context.Context) {
 	// Sync active global resources
 	var globalResources []models.GlobalResource
-	g.DB.Where("deleted_at IS NULL").Find(&globalResources)
+	g.DB.WithContext(ctx).Where("deleted_at IS NULL").Find(&globalResources)
 
 	for _, gr := range globalResources {
-		g.syncGlobalResource(&gr)
+		g.syncGlobalResource(ctx, &gr)
 	}
 
 	// Handle deleted global resources
 	var deletedGlobalResources []models.GlobalResource
-	g.DB.Unscoped().Where("deleted_at IS NOT NULL").Find(&deletedGlobalResources)
+	g.DB.WithContext(ctx).Unscoped().Where("deleted_at IS NOT NULL").Find(&deletedGlobalResources)
 
 	for _, gr := range deletedGlobalResources {
-		g.cleanupDeletedGlobalResource(&gr)
+		g.cleanupDeletedGlobalResource(ctx, &gr)
 	}
 }
 
-func (g *GlobalSyncer) syncGlobalResource(gr *models.GlobalResource) {
-	tx := g.DB.Begin()
+func (g *GlobalSyncer) syncGlobalResource(ctx context.Context, gr *models.GlobalResource) {
+	tx := g.DB.WithContext(ctx).Begin()
 	defer tx.Rollback()
 
 	// Check if synced state exists for this cluster
@@ -135,15 +135,15 @@ func (g *GlobalSyncer) updateResourceForCluster(tx *gorm.DB, gr *models.GlobalRe
 	})
 }
 
-func (g *GlobalSyncer) cleanupDeletedGlobalResource(gr *models.GlobalResource) {
+func (g *GlobalSyncer) cleanupDeletedGlobalResource(ctx context.Context, gr *models.GlobalResource) {
 	// Find and soft-delete the corresponding resource
 	var resource models.Resource
-	err := g.DB.Where("cluster_id = ? AND namespace = ? AND kind = ? AND name = ?",
+	err := g.DB.WithContext(ctx).Where("cluster_id = ? AND namespace = ? AND kind = ? AND name = ?",
 		g.ClusterID, gr.Namespace, gr.Kind, gr.Name).First(&resource).Error
 
 	if err == gorm.ErrRecordNotFound {
 		// Resource already doesn't exist, just cleanup synced state
-		g.DB.Unscoped().Where("global_resource_id = ? AND cluster_id = ?", gr.ID, g.ClusterID).
+		g.DB.WithContext(ctx).Unscoped().Where("global_resource_id = ? AND cluster_id = ?", gr.ID, g.ClusterID).
 			Delete(&models.GlobalResourceSyncedState{})
 		return
 	}
@@ -154,10 +154,10 @@ func (g *GlobalSyncer) cleanupDeletedGlobalResource(gr *models.GlobalResource) {
 	}
 
 	// Soft-delete the resource (reconciler will delete from K8s)
-	g.DB.Delete(&resource)
+	g.DB.WithContext(ctx).Delete(&resource)
 
 	// Cleanup synced state
-	g.DB.Unscoped().Where("global_resource_id = ? AND cluster_id = ?", gr.ID, g.ClusterID).
+	g.DB.WithContext(ctx).Unscoped().Where("global_resource_id = ? AND cluster_id = ?", gr.ID, g.ClusterID).
 		Delete(&models.GlobalResourceSyncedState{})
 
 	log.Printf("[GlobalSyncer] Cleaned up resource for deleted global resource %d in cluster %s", gr.ID, g.ClusterID)

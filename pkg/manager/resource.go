@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -19,8 +20,8 @@ func NewResourceManager(db *gorm.DB) *ResourceManager {
 }
 
 // Create creates a new resource atomically
-func (m *ResourceManager) Create(req CreateResourceRequest) (*ResourceWithState, error) {
-	tx := m.DB.Begin()
+func (m *ResourceManager) Create(ctx context.Context, req CreateResourceRequest) (*ResourceWithState, error) {
+	tx := m.DB.WithContext(ctx).Begin()
 	defer tx.Rollback()
 
 	resource := models.Resource{
@@ -42,13 +43,13 @@ func (m *ResourceManager) Create(req CreateResourceRequest) (*ResourceWithState,
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	return m.Get(resource.ID)
+	return m.Get(ctx, resource.ID)
 }
 
 // Get retrieves a resource by ID with its applied and current states
-func (m *ResourceManager) Get(id uint) (*ResourceWithState, error) {
+func (m *ResourceManager) Get(ctx context.Context, id uint) (*ResourceWithState, error) {
 	var resource models.Resource
-	if err := m.DB.First(&resource, id).Error; err != nil {
+	if err := m.DB.WithContext(ctx).First(&resource, id).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("resource not found")
 		}
@@ -56,10 +57,10 @@ func (m *ResourceManager) Get(id uint) (*ResourceWithState, error) {
 	}
 
 	var appliedState models.ResourceAppliedState
-	m.DB.Where("resource_id = ?", resource.ID).First(&appliedState)
+	m.DB.WithContext(ctx).Where("resource_id = ?", resource.ID).First(&appliedState)
 
 	var currentState models.ResourceCurrentState
-	m.DB.Where("resource_id = ?", resource.ID).First(&currentState)
+	m.DB.WithContext(ctx).Where("resource_id = ?", resource.ID).First(&currentState)
 
 	result := &ResourceWithState{
 		Resource: resource,
@@ -77,9 +78,9 @@ func (m *ResourceManager) Get(id uint) (*ResourceWithState, error) {
 }
 
 // List retrieves all resources for a cluster with their states
-func (m *ResourceManager) List(clusterID string) ([]*ResourceWithState, error) {
+func (m *ResourceManager) List(ctx context.Context, clusterID string) ([]*ResourceWithState, error) {
 	var resources []models.Resource
-	query := m.DB.Model(&models.Resource{})
+	query := m.DB.WithContext(ctx).Model(&models.Resource{})
 
 	if clusterID != "" {
 		query = query.Where("cluster_id = ?", clusterID)
@@ -92,10 +93,10 @@ func (m *ResourceManager) List(clusterID string) ([]*ResourceWithState, error) {
 	result := make([]*ResourceWithState, len(resources))
 	for i, r := range resources {
 		var appliedState models.ResourceAppliedState
-		m.DB.Where("resource_id = ?", r.ID).First(&appliedState)
+		m.DB.WithContext(ctx).Where("resource_id = ?", r.ID).First(&appliedState)
 
 		var currentState models.ResourceCurrentState
-		m.DB.Where("resource_id = ?", r.ID).First(&currentState)
+		m.DB.WithContext(ctx).Where("resource_id = ?", r.ID).First(&currentState)
 
 		result[i] = &ResourceWithState{
 			Resource: r,
@@ -114,8 +115,8 @@ func (m *ResourceManager) List(clusterID string) ([]*ResourceWithState, error) {
 }
 
 // Update updates a resource's desired spec (generation auto-increments via DB trigger)
-func (m *ResourceManager) Update(id uint, desiredSpec json.RawMessage, revision *int) (*ResourceWithState, error) {
-	tx := m.DB.Begin()
+func (m *ResourceManager) Update(ctx context.Context, id uint, desiredSpec json.RawMessage, revision *int) (*ResourceWithState, error) {
+	tx := m.DB.WithContext(ctx).Begin()
 	defer tx.Rollback()
 
 	var resource models.Resource
@@ -146,12 +147,12 @@ func (m *ResourceManager) Update(id uint, desiredSpec json.RawMessage, revision 
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	return m.Get(id)
+	return m.Get(ctx, id)
 }
 
 // Delete soft-deletes a resource atomically (generation auto-increments via DB trigger)
-func (m *ResourceManager) Delete(id uint) error {
-	tx := m.DB.Begin()
+func (m *ResourceManager) Delete(ctx context.Context, id uint) error {
+	tx := m.DB.WithContext(ctx).Begin()
 	defer tx.Rollback()
 
 	var resource models.Resource

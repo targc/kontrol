@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -19,8 +20,8 @@ func NewGlobalResourceManager(db *gorm.DB) *GlobalResourceManager {
 }
 
 // Create creates a new global resource
-func (m *GlobalResourceManager) Create(req CreateGlobalResourceRequest) (*GlobalResourceWithSyncStatus, error) {
-	tx := m.DB.Begin()
+func (m *GlobalResourceManager) Create(ctx context.Context, req CreateGlobalResourceRequest) (*GlobalResourceWithSyncStatus, error) {
+	tx := m.DB.WithContext(ctx).Begin()
 	defer tx.Rollback()
 
 	globalResource := models.GlobalResource{
@@ -41,32 +42,32 @@ func (m *GlobalResourceManager) Create(req CreateGlobalResourceRequest) (*Global
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	return m.Get(globalResource.ID)
+	return m.Get(ctx, globalResource.ID)
 }
 
 // Get retrieves a global resource by ID with its sync status
-func (m *GlobalResourceManager) Get(id uint) (*GlobalResourceWithSyncStatus, error) {
+func (m *GlobalResourceManager) Get(ctx context.Context, id uint) (*GlobalResourceWithSyncStatus, error) {
 	var globalResource models.GlobalResource
-	if err := m.DB.First(&globalResource, id).Error; err != nil {
+	if err := m.DB.WithContext(ctx).First(&globalResource, id).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("global resource not found")
 		}
 		return nil, fmt.Errorf("failed to get global resource: %w", err)
 	}
 
-	return m.buildGlobalResourceWithSyncStatus(&globalResource)
+	return m.buildGlobalResourceWithSyncStatus(ctx, &globalResource)
 }
 
 // List retrieves all global resources with their sync status
-func (m *GlobalResourceManager) List() ([]*GlobalResourceWithSyncStatus, error) {
+func (m *GlobalResourceManager) List(ctx context.Context) ([]*GlobalResourceWithSyncStatus, error) {
 	var globalResources []models.GlobalResource
-	if err := m.DB.Find(&globalResources).Error; err != nil {
+	if err := m.DB.WithContext(ctx).Find(&globalResources).Error; err != nil {
 		return nil, fmt.Errorf("failed to list global resources: %w", err)
 	}
 
 	result := make([]*GlobalResourceWithSyncStatus, len(globalResources))
 	for i, gr := range globalResources {
-		status, err := m.buildGlobalResourceWithSyncStatus(&gr)
+		status, err := m.buildGlobalResourceWithSyncStatus(ctx, &gr)
 		if err != nil {
 			return nil, err
 		}
@@ -77,8 +78,8 @@ func (m *GlobalResourceManager) List() ([]*GlobalResourceWithSyncStatus, error) 
 }
 
 // Update updates a global resource's desired spec (generation auto-increments via DB trigger)
-func (m *GlobalResourceManager) Update(id uint, desiredSpec json.RawMessage, revision *int) (*GlobalResourceWithSyncStatus, error) {
-	tx := m.DB.Begin()
+func (m *GlobalResourceManager) Update(ctx context.Context, id uint, desiredSpec json.RawMessage, revision *int) (*GlobalResourceWithSyncStatus, error) {
+	tx := m.DB.WithContext(ctx).Begin()
 	defer tx.Rollback()
 
 	var globalResource models.GlobalResource
@@ -107,12 +108,12 @@ func (m *GlobalResourceManager) Update(id uint, desiredSpec json.RawMessage, rev
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	return m.Get(id)
+	return m.Get(ctx, id)
 }
 
 // Delete soft-deletes a global resource (generation auto-increments via DB trigger)
-func (m *GlobalResourceManager) Delete(id uint) error {
-	tx := m.DB.Begin()
+func (m *GlobalResourceManager) Delete(ctx context.Context, id uint) error {
+	tx := m.DB.WithContext(ctx).Begin()
 	defer tx.Rollback()
 
 	var globalResource models.GlobalResource
@@ -135,16 +136,16 @@ func (m *GlobalResourceManager) Delete(id uint) error {
 }
 
 // buildGlobalResourceWithSyncStatus builds a GlobalResourceWithSyncStatus from a GlobalResource
-func (m *GlobalResourceManager) buildGlobalResourceWithSyncStatus(gr *models.GlobalResource) (*GlobalResourceWithSyncStatus, error) {
+func (m *GlobalResourceManager) buildGlobalResourceWithSyncStatus(ctx context.Context, gr *models.GlobalResource) (*GlobalResourceWithSyncStatus, error) {
 	// Get total clusters
 	var totalClusters int64
-	if err := m.DB.Model(&models.Cluster{}).Count(&totalClusters).Error; err != nil {
+	if err := m.DB.WithContext(ctx).Model(&models.Cluster{}).Count(&totalClusters).Error; err != nil {
 		return nil, fmt.Errorf("failed to count clusters: %w", err)
 	}
 
 	// Get synced states for this global resource
 	var syncedStates []models.GlobalResourceSyncedState
-	m.DB.Where("global_resource_id = ?", gr.ID).Find(&syncedStates)
+	m.DB.WithContext(ctx).Where("global_resource_id = ?", gr.ID).Find(&syncedStates)
 
 	// Build cluster statuses
 	clusterStatuses := make([]ClusterSyncStatus, len(syncedStates))
