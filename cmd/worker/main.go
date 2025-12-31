@@ -26,10 +26,12 @@ func main() {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 
-	err = database.AutoMigrate(db)
+	if cfg.AutoMigrate {
+		err = database.AutoMigrate(db)
 
-	if err != nil {
-		log.Fatalf("Failed to run migrations: %v", err)
+		if err != nil {
+			log.Fatalf("Failed to run migrations: %v", err)
+		}
 	}
 
 	w, err := worker.NewWorker(ctx, db, cfg.ClusterID, cfg.Kubeconfig)
