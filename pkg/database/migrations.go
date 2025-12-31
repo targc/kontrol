@@ -14,6 +14,10 @@ func RunMigrations(db *gorm.DB) error {
 		return err
 	}
 
+	if err := createGlobalResourceGenerationTrigger(db); err != nil {
+		return err
+	}
+
 	log.Println("Database migrations completed")
 	return nil
 }
@@ -57,5 +61,24 @@ CREATE TRIGGER resources_increment_generation
 	}
 
 	log.Println("Generation auto-increment trigger created")
+	return nil
+}
+
+// createGlobalResourceGenerationTrigger creates a trigger to auto-increment generation on global_resources
+func createGlobalResourceGenerationTrigger(db *gorm.DB) error {
+	// Reuse the same function, just create a trigger for global_resources table
+	triggerSQL := `
+DROP TRIGGER IF EXISTS global_resources_increment_generation ON global_resources;
+CREATE TRIGGER global_resources_increment_generation
+    BEFORE UPDATE ON global_resources
+    FOR EACH ROW
+    EXECUTE FUNCTION increment_resource_generation();
+`
+
+	if err := db.Exec(triggerSQL).Error; err != nil {
+		return err
+	}
+
+	log.Println("GlobalResource generation auto-increment trigger created")
 	return nil
 }

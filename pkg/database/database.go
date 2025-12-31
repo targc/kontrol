@@ -32,9 +32,12 @@ func AutoMigrate(db *gorm.DB) error {
 	log.Println("Running auto migration...")
 
 	err := db.AutoMigrate(
+		&models.Cluster{},
 		&models.Resource{},
 		&models.ResourceCurrentState{},
 		&models.ResourceAppliedState{},
+		&models.GlobalResource{},
+		&models.GlobalResourceSyncedState{},
 	)
 	if err != nil {
 		return fmt.Errorf("failed to auto migrate: %w", err)

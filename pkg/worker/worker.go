@@ -5,23 +5,34 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/targc/kontrol/pkg/global_syncer"
+	"github.com/targc/kontrol/pkg/models"
 	"github.com/targc/kontrol/pkg/reconciler"
 	"github.com/targc/kontrol/pkg/watcher"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
-// Worker encapsulates the watcher and reconciler components
+// Worker encapsulates the watcher, reconciler, and global syncer components
 type Worker struct {
-	DB         *gorm.DB
-	ClusterID  string
-	Kubeconfig string
-	watcher    *watcher.Watcher
-	reconciler *reconciler.Reconciler
-	cancel     context.CancelFunc
+	DB           *gorm.DB
+	ClusterID    string
+	Kubeconfig   string
+	watcher      *watcher.Watcher
+	reconciler   *reconciler.Reconciler
+	globalSyncer *global_syncer.GlobalSyncer
+	cancel       context.CancelFunc
 }
 
 // NewWorker creates a new Worker instance
 func NewWorker(db *gorm.DB, clusterID, kubeconfig string) (*Worker, error) {
+	// Register cluster on startup
+	cluster := models.Cluster{ID: clusterID}
+	if err := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&cluster).Error; err != nil {
+		return nil, fmt.Errorf("failed to register cluster: %w", err)
+	}
+	log.Printf("[Worker] Registered cluster: %s", clusterID)
+
 	w, err := watcher.NewWatcher(db, clusterID, kubeconfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create watcher: %w", err)
@@ -32,16 +43,19 @@ func NewWorker(db *gorm.DB, clusterID, kubeconfig string) (*Worker, error) {
 		return nil, fmt.Errorf("failed to create reconciler: %w", err)
 	}
 
+	gs := global_syncer.NewGlobalSyncer(db, clusterID)
+
 	return &Worker{
-		DB:         db,
-		ClusterID:  clusterID,
-		Kubeconfig: kubeconfig,
-		watcher:    w,
-		reconciler: r,
+		DB:           db,
+		ClusterID:    clusterID,
+		Kubeconfig:   kubeconfig,
+		watcher:      w,
+		reconciler:   r,
+		globalSyncer: gs,
 	}, nil
 }
 
-// Start begins the worker's watcher and reconciler loops
+// Start begins the worker's watcher, reconciler, and global syncer loops
 func (w *Worker) Start(ctx context.Context) error {
 	log.Printf("[Worker] Starting for cluster: %s", w.ClusterID)
 
@@ -50,6 +64,7 @@ func (w *Worker) Start(ctx context.Context) error {
 
 	go w.watcher.Start(ctx)
 	go w.reconciler.Start(ctx)
+	go w.globalSyncer.Start(ctx)
 
 	<-ctx.Done()
 	log.Println("[Worker] Stopped")
