@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/targc/kontrol/pkg/k8s"
@@ -14,6 +15,7 @@ import (
 	"gorm.io/gorm/clause"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/dynamic"
 )
@@ -45,65 +47,52 @@ func NewWatcher(db *gorm.DB, clusterID, kubeconfig string) (*Watcher, error) {
 }
 
 func (w *Watcher) Start(ctx context.Context) {
-	log.Println("[Watcher] Starting watch for cluster:", w.ClusterID)
+	log.Println("[Watcher] Starting watches for cluster:", w.ClusterID)
+
+	var wg sync.WaitGroup
+
+	for _, gvr := range k8s.SupportedGVRs {
+		wg.Add(1)
+
+		go func(gvr schema.GroupVersionResource) {
+			defer wg.Done()
+			w.watchGVR(ctx, gvr)
+		}(gvr)
+	}
+
+	wg.Wait()
+	log.Println("[Watcher] All watches stopped")
+}
+
+func (w *Watcher) watchGVR(ctx context.Context, gvr schema.GroupVersionResource) {
+	log.Printf("[Watcher] Starting watch for %s", gvr.Resource)
 
 	for {
-		select {
-		case <-ctx.Done():
-			log.Println("[Watcher] Stopping watch")
+		watcher, err := w.DynamicClient.Resource(gvr).Watch(ctx, metav1.ListOptions{})
+
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+
+			log.Printf("[Watcher] Failed to watch %s: %v, retrying...", gvr.Resource, err)
+			time.Sleep(5 * time.Second)
+			continue
+		}
+
+		for event := range watcher.ResultChan() {
+			w.handleEvent(ctx, event)
+		}
+
+		if ctx.Err() != nil {
 			return
-		default:
-			w.watchResources(ctx)
-			time.Sleep(10 * time.Second)
 		}
+
+		log.Printf("[Watcher] Watch %s disconnected, reconnecting...", gvr.Resource)
 	}
 }
 
-func (w *Watcher) watchResources(ctx context.Context) {
-	var resources []models.Resource
-
-	err := w.DB.
-		WithContext(ctx).
-		Where("cluster_id = ?", w.ClusterID).
-		Find(&resources).
-		Error
-
-	if err != nil {
-		log.Printf("[Watcher] Failed to fetch resources: %v", err)
-		return
-	}
-
-	for _, resource := range resources {
-		go w.watchResource(ctx, &resource)
-	}
-}
-
-func (w *Watcher) watchResource(ctx context.Context, resource *models.Resource) {
-	gvr := k8s.GetGVR(resource.Kind, resource.APIVersion)
-
-	watcher, err := w.DynamicClient.Resource(gvr).Namespace(resource.Namespace).Watch(ctx, metav1.ListOptions{
-		FieldSelector:  fmt.Sprintf("metadata.name=%s", resource.Name),
-		TimeoutSeconds: func() *int64 { t := int64(30); return &t }(),
-	})
-
-	if err != nil {
-		log.Printf("[Watcher] Failed to watch resource %d: %v", resource.ID, err)
-		return
-	}
-
-	defer watcher.Stop()
-
-	for event := range watcher.ResultChan() {
-		switch event.Type {
-		case watch.Modified, watch.Added:
-			w.handleEvent(ctx, event, resource.ID)
-		case watch.Deleted:
-			w.handleDeleteEvent(ctx, resource.ID)
-		}
-	}
-}
-
-func (w *Watcher) handleEvent(ctx context.Context, event watch.Event, resourceID uint) {
+func (w *Watcher) handleEvent(ctx context.Context, event watch.Event) {
 	obj, ok := event.Object.(*unstructured.Unstructured)
 
 	if !ok {
@@ -111,12 +100,34 @@ func (w *Watcher) handleEvent(ctx context.Context, event watch.Event, resourceID
 	}
 
 	annotations := obj.GetAnnotations()
+	resourceIDStr := annotations["kontrol/resource-id"]
+
+	if resourceIDStr == "" {
+		return
+	}
+
+	resourceID, err := strconv.ParseUint(resourceIDStr, 10, 64)
+
+	if err != nil {
+		return
+	}
+
+	switch event.Type {
+	case watch.Added, watch.Modified:
+		w.upsertCurrentState(ctx, uint(resourceID), obj)
+	case watch.Deleted:
+		w.deleteCurrentState(ctx, uint(resourceID))
+	}
+}
+
+func (w *Watcher) upsertCurrentState(ctx context.Context, resourceID uint, obj *unstructured.Unstructured) {
+	annotations := obj.GetAnnotations()
 	kontrolGeneration := annotations["kontrol/generation"]
 	kontrolRevision := annotations["kontrol/revision"]
 	k8sResourceVersion := obj.GetResourceVersion()
 
 	if kontrolGeneration == "" {
-		log.Printf("[Watcher] Missing kontrol annotations on resource %d", resourceID)
+		log.Printf("[Watcher] Missing kontrol/generation annotation on resource %d", resourceID)
 		return
 	}
 
@@ -148,7 +159,12 @@ func (w *Watcher) handleEvent(ctx context.Context, event watch.Event, resourceID
 		return
 	}
 
-	specBytes, _ := json.Marshal(obj.Object["spec"])
+	specBytes, err := json.Marshal(obj.Object["spec"])
+
+	if err != nil {
+		log.Printf("[Watcher] Failed to marshal spec for resource %d: %v", resourceID, err)
+		return
+	}
 
 	err = tx.
 		Model(&currentState).
@@ -175,7 +191,7 @@ func (w *Watcher) handleEvent(ctx context.Context, event watch.Event, resourceID
 	log.Printf("[Watcher] Updated current_state for resource %d (gen=%d, rev=%d)", resourceID, generation, revision)
 }
 
-func (w *Watcher) handleDeleteEvent(ctx context.Context, resourceID uint) {
+func (w *Watcher) deleteCurrentState(ctx context.Context, resourceID uint) {
 	log.Printf("[Watcher] Resource %d deleted from K8s, removing current_state", resourceID)
 
 	err := w.DB.
