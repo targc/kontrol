@@ -98,6 +98,12 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 }
 
 func (r *Reconciler) reconcileResource(ctx context.Context, resource *models.Resource) {
+	if resource.ClusterID != r.ClusterID {
+		log.Printf("[Reconciler] SECURITY: resource %s belongs to cluster %s, not %s - skipping",
+			resource.ID, resource.ClusterID, r.ClusterID)
+		return
+	}
+
 	tx := r.DB.WithContext(ctx).Begin()
 	defer tx.Rollback()
 
@@ -248,6 +254,12 @@ func (r *Reconciler) reconcileResource(ctx context.Context, resource *models.Res
 }
 
 func (r *Reconciler) deleteResource(ctx context.Context, resource *models.Resource) {
+	if resource.ClusterID != r.ClusterID {
+		log.Printf("[Reconciler] SECURITY: resource %s belongs to cluster %s, not %s - skipping delete",
+			resource.ID, resource.ClusterID, r.ClusterID)
+		return
+	}
+
 	log.Printf("[Reconciler] Deleting resource %s from K8s", resource.ID)
 
 	gvr := k8s.GetGVR(resource.Kind, resource.APIVersion)
