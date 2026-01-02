@@ -308,7 +308,7 @@ func (m *ResourceManager) Upsert(ctx context.Context, req CreateResourceRequest)
 			},
 			Where: clause.Where{
 				Exprs: []clause.Expression{
-					clause.Expr{SQL: "deleted_at IS NULL"},
+					clause.Expr{SQL: "k_resources.deleted_at IS NULL"},
 				},
 			},
 			DoUpdates: clause.Assignments(map[string]interface{}{

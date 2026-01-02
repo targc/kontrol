@@ -113,7 +113,7 @@ func (m *GlobalResourceManager) Upsert(ctx context.Context, req CreateGlobalReso
 			},
 			Where: clause.Where{
 				Exprs: []clause.Expression{
-					clause.Expr{SQL: "deleted_at IS NULL"},
+					clause.Expr{SQL: "k_global_resources.deleted_at IS NULL"},
 				},
 			},
 			DoUpdates: clause.Assignments(map[string]interface{}{
