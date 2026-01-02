@@ -309,7 +309,7 @@ func (m *ResourceManager) Upsert(ctx context.Context, req CreateResourceRequest)
 			DoUpdates: clause.Assignments(map[string]interface{}{
 				"api_version":  req.APIVersion,
 				"desired_spec": req.DesiredSpec,
-				"revision":     gorm.Expr("resources.revision + 1"),
+				"revision":     gorm.Expr("k_resources.revision + 1"),
 			}),
 		}).
 		Create(&resource).
