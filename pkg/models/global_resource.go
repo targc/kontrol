@@ -25,5 +25,5 @@ type GlobalResource struct {
 }
 
 func (GlobalResource) TableName() string {
-	return "global_resources"
+	return "k_global_resources"
 }

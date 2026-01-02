@@ -26,5 +26,5 @@ type ResourceAppliedState struct {
 }
 
 func (ResourceAppliedState) TableName() string {
-	return "resource_applied_states"
+	return "k_resource_applied_states"
 }

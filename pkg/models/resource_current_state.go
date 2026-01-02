@@ -24,5 +24,5 @@ type ResourceCurrentState struct {
 }
 
 func (ResourceCurrentState) TableName() string {
-	return "resource_current_states"
+	return "k_resource_current_states"
 }

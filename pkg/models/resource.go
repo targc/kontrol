@@ -26,5 +26,5 @@ type Resource struct {
 }
 
 func (Resource) TableName() string {
-	return "resources"
+	return "k_resources"
 }

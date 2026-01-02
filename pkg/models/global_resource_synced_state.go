@@ -19,5 +19,5 @@ type GlobalResourceSyncedState struct {
 }
 
 func (GlobalResourceSyncedState) TableName() string {
-	return "global_resource_synced_states"
+	return "k_global_resource_synced_states"
 }

@@ -11,5 +11,5 @@ type Cluster struct {
 }
 
 func (Cluster) TableName() string {
-	return "clusters"
+	return "k_clusters"
 }
