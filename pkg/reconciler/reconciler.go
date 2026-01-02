@@ -145,6 +145,8 @@ func (r *Reconciler) reconcileResource(ctx context.Context, resource *models.Res
 	json.Unmarshal(resource.DesiredSpec, &spec)
 
 	obj := &unstructured.Unstructured{Object: spec}
+	obj.SetAPIVersion(resource.APIVersion)
+	obj.SetKind(resource.Kind)
 	obj.SetName(resource.Name)
 	obj.SetNamespace(resource.Namespace)
 
