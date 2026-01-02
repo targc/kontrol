@@ -50,9 +50,9 @@ $$ LANGUAGE plpgsql;
 	}
 
 	triggerSQL := `
-DROP TRIGGER IF EXISTS resources_increment_generation ON resources;
-CREATE TRIGGER resources_increment_generation
-    BEFORE UPDATE ON resources
+DROP TRIGGER IF EXISTS k_resources_increment_generation ON k_resources;
+CREATE TRIGGER k_resources_increment_generation
+    BEFORE UPDATE ON k_resources
     FOR EACH ROW
     EXECUTE FUNCTION increment_resource_generation();
 `
@@ -70,9 +70,9 @@ CREATE TRIGGER resources_increment_generation
 
 func createGlobalResourceGenerationTrigger(db *gorm.DB) error {
 	triggerSQL := `
-DROP TRIGGER IF EXISTS global_resources_increment_generation ON global_resources;
-CREATE TRIGGER global_resources_increment_generation
-    BEFORE UPDATE ON global_resources
+DROP TRIGGER IF EXISTS k_global_resources_increment_generation ON k_global_resources;
+CREATE TRIGGER k_global_resources_increment_generation
+    BEFORE UPDATE ON k_global_resources
     FOR EACH ROW
     EXECUTE FUNCTION increment_resource_generation();
 `
