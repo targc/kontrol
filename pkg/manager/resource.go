@@ -300,17 +300,7 @@ func (m *ResourceManager) Upsert(ctx context.Context, req CreateResourceRequest)
 	err := m.DB.
 		WithContext(ctx).
 		Clauses(clause.OnConflict{
-			Columns: []clause.Column{
-				{Name: "cluster_id"},
-				{Name: "namespace"},
-				{Name: "kind"},
-				{Name: "name"},
-			},
-			Where: clause.Where{
-				Exprs: []clause.Expression{
-					clause.Expr{SQL: "k_resources.deleted_at IS NULL"},
-				},
-			},
+			OnConstraint: "idx_k_resources_unique_key",
 			DoUpdates: clause.Assignments(map[string]interface{}{
 				"api_version":  req.APIVersion,
 				"desired_spec": req.DesiredSpec,
