@@ -8,11 +8,12 @@ import (
 )
 
 type Config struct {
-	DBURL       string `env:"KONTROL_DB_URL,required"`
-	ClusterID   string `env:"KONTROL_CLUSTER_ID,required"`
+	DBURL         string `env:"KONTROL_DB_URL,required"`
+	ClusterID     string `env:"KONTROL_CLUSTER_ID,required"`
 	ServerPort    string `env:"KONTROL_SERVER_PORT,default=8080"`
 	Kubeconfig    string `env:"KONTROL_KUBECONFIG"`
 	AutoMigrate   bool   `env:"KONTROL_AUTO_MIGRATE,default=false"`
+	SupportedGVRs string `env:"KONTROL_SUPPORTED_GVRS"` // comma-separated list: deployment,pod,service
 }
 
 func Load(ctx context.Context) *Config {

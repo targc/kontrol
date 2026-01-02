@@ -9,6 +9,7 @@ import (
 
 	"github.com/targc/kontrol/pkg/config"
 	"github.com/targc/kontrol/pkg/database"
+	"github.com/targc/kontrol/pkg/k8s"
 	"github.com/targc/kontrol/pkg/worker"
 )
 
@@ -19,6 +20,9 @@ func main() {
 	defer cancel()
 
 	cfg := config.Load(ctx)
+
+	k8s.InitSupportedGVRs(cfg.SupportedGVRs)
+	log.Printf("Watching %d GVRs", len(k8s.SupportedGVRs))
 
 	db, err := database.Connect(cfg)
 
