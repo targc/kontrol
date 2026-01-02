@@ -3,12 +3,12 @@ package manager
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/targc/kontrol/pkg/models"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // GlobalResourceManager provides programmatic CRUD operations for global resources
@@ -90,25 +90,41 @@ func (m *GlobalResourceManager) GetByKindAndName(ctx context.Context, namespace,
 	return m.buildGlobalResourceWithSyncStatus(ctx, &gr)
 }
 
-// Upsert creates or updates a global resource based on namespace, kind, and name
+// Upsert creates or updates a global resource atomically using INSERT ON CONFLICT
 func (m *GlobalResourceManager) Upsert(ctx context.Context, req CreateGlobalResourceRequest) (*GlobalResourceWithSyncStatus, error) {
-	var existing models.GlobalResource
+	globalResource := models.GlobalResource{
+		ID:          uuid.Must(uuid.NewV7()),
+		Namespace:   req.Namespace,
+		Kind:        req.Kind,
+		Name:        req.Name,
+		APIVersion:  req.APIVersion,
+		DesiredSpec: req.DesiredSpec,
+		Generation:  1,
+		Revision:    1,
+	}
 
 	err := m.DB.
 		WithContext(ctx).
-		Where("namespace = ? AND kind = ? AND name = ?", req.Namespace, req.Kind, req.Name).
-		First(&existing).
+		Clauses(clause.OnConflict{
+			Columns: []clause.Column{
+				{Name: "namespace"},
+				{Name: "kind"},
+				{Name: "name"},
+			},
+			DoUpdates: clause.Assignments(map[string]interface{}{
+				"api_version":  req.APIVersion,
+				"desired_spec": req.DesiredSpec,
+				"revision":     gorm.Expr("k_global_resources.revision + 1"),
+			}),
+		}).
+		Create(&globalResource).
 		Error
 
-	if err == nil {
-		return m.Update(ctx, existing.ID, req.DesiredSpec, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to upsert global resource: %w", err)
 	}
 
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return m.Create(ctx, req)
-	}
-
-	return nil, fmt.Errorf("failed to check existing resource: %w", err)
+	return m.GetByKindAndName(ctx, req.Namespace, req.Kind, req.Name)
 }
 
 // List retrieves all global resources with their sync status
@@ -291,6 +307,23 @@ func (m *GlobalResourceManager) UpdateFromTemplate(ctx context.Context, id uuid.
 	}
 
 	return m.Update(ctx, id, spec, nil)
+}
+
+// UpsertFromTemplate creates or updates a global resource from a template
+func (m *GlobalResourceManager) UpsertFromTemplate(ctx context.Context, tmpl Template) (*GlobalResourceWithSyncStatus, error) {
+	kind, apiVersion, namespace, name, spec, err := tmpl.Build()
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to build template %s: %w", tmpl.TemplateName(), err)
+	}
+
+	return m.Upsert(ctx, CreateGlobalResourceRequest{
+		Namespace:   namespace,
+		Kind:        kind,
+		Name:        name,
+		APIVersion:  apiVersion,
+		DesiredSpec: spec,
+	})
 }
 
 // DecompileToTemplate decompiles a global resource's spec into a template

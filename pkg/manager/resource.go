@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/targc/kontrol/pkg/models"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // ResourceManager provides programmatic CRUD operations for resources
@@ -259,4 +260,82 @@ func (m *ResourceManager) UpdateFromTemplate(ctx context.Context, id uuid.UUID, 
 	}
 
 	return m.Update(ctx, id, spec, nil)
+}
+
+// GetByKey retrieves a resource by its unique key (cluster_id, namespace, kind, name)
+func (m *ResourceManager) GetByKey(ctx context.Context, clusterID, namespace, kind, name string) (*ResourceWithState, error) {
+	var resource models.Resource
+
+	err := m.DB.
+		WithContext(ctx).
+		Where("cluster_id = ? AND namespace = ? AND kind = ? AND name = ?",
+			clusterID, namespace, kind, name).
+		First(&resource).
+		Error
+
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("resource not found")
+		}
+		return nil, fmt.Errorf("failed to get resource: %w", err)
+	}
+
+	return m.Get(ctx, resource.ID)
+}
+
+// Upsert creates or updates a resource atomically using INSERT ON CONFLICT
+func (m *ResourceManager) Upsert(ctx context.Context, req CreateResourceRequest) (*ResourceWithState, error) {
+	resource := models.Resource{
+		ID:          uuid.Must(uuid.NewV7()),
+		ClusterID:   req.ClusterID,
+		Namespace:   req.Namespace,
+		Kind:        req.Kind,
+		Name:        req.Name,
+		APIVersion:  req.APIVersion,
+		DesiredSpec: req.DesiredSpec,
+		Generation:  1,
+		Revision:    1,
+	}
+
+	err := m.DB.
+		WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns: []clause.Column{
+				{Name: "cluster_id"},
+				{Name: "namespace"},
+				{Name: "kind"},
+				{Name: "name"},
+			},
+			DoUpdates: clause.Assignments(map[string]interface{}{
+				"api_version":  req.APIVersion,
+				"desired_spec": req.DesiredSpec,
+				"revision":     gorm.Expr("resources.revision + 1"),
+			}),
+		}).
+		Create(&resource).
+		Error
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to upsert resource: %w", err)
+	}
+
+	return m.GetByKey(ctx, req.ClusterID, req.Namespace, req.Kind, req.Name)
+}
+
+// UpsertFromTemplate creates or updates a resource from a template
+func (m *ResourceManager) UpsertFromTemplate(ctx context.Context, clusterID string, tmpl Template) (*ResourceWithState, error) {
+	kind, apiVersion, namespace, name, spec, err := tmpl.Build()
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to build template %s: %w", tmpl.TemplateName(), err)
+	}
+
+	return m.Upsert(ctx, CreateResourceRequest{
+		ClusterID:   clusterID,
+		Namespace:   namespace,
+		Kind:        kind,
+		Name:        name,
+		APIVersion:  apiVersion,
+		DesiredSpec: spec,
+	})
 }

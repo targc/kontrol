@@ -21,6 +21,12 @@ func RunMigrations(db *gorm.DB) error {
 		return err
 	}
 
+	err = createUniqueIndexes(db)
+
+	if err != nil {
+		return err
+	}
+
 	log.Println("Database migrations completed")
 
 	return nil
@@ -84,6 +90,36 @@ CREATE TRIGGER k_global_resources_increment_generation
 	}
 
 	log.Println("GlobalResource generation auto-increment trigger created")
+
+	return nil
+}
+
+func createUniqueIndexes(db *gorm.DB) error {
+	resourceIndexSQL := `
+CREATE UNIQUE INDEX IF NOT EXISTS idx_k_resources_unique_key
+ON k_resources (cluster_id, namespace, kind, name)
+WHERE deleted_at IS NULL;
+`
+
+	err := db.Exec(resourceIndexSQL).Error
+
+	if err != nil {
+		return err
+	}
+
+	globalResourceIndexSQL := `
+CREATE UNIQUE INDEX IF NOT EXISTS idx_k_global_resources_unique_key
+ON k_global_resources (namespace, kind, name)
+WHERE deleted_at IS NULL;
+`
+
+	err = db.Exec(globalResourceIndexSQL).Error
+
+	if err != nil {
+		return err
+	}
+
+	log.Println("Unique indexes created")
 
 	return nil
 }
