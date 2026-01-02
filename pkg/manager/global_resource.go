@@ -8,7 +8,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/targc/kontrol/pkg/models"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 // GlobalResourceManager provides programmatic CRUD operations for global resources
@@ -105,15 +104,17 @@ func (m *GlobalResourceManager) Upsert(ctx context.Context, req CreateGlobalReso
 
 	err := m.DB.
 		WithContext(ctx).
-		Clauses(clause.OnConflict{
-			OnConstraint: "idx_k_global_resources_unique_key",
-			DoUpdates: clause.Assignments(map[string]interface{}{
-				"api_version":  req.APIVersion,
-				"desired_spec": req.DesiredSpec,
-				"revision":     gorm.Expr("k_global_resources.revision + 1"),
-			}),
-		}).
-		Create(&globalResource).
+		Exec(`
+			INSERT INTO k_global_resources (id, namespace, kind, name, api_version, desired_spec, generation, revision, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+			ON CONFLICT (namespace, kind, name) WHERE deleted_at IS NULL
+			DO UPDATE SET
+				api_version = EXCLUDED.api_version,
+				desired_spec = EXCLUDED.desired_spec,
+				revision = k_global_resources.revision + 1,
+				updated_at = NOW()
+		`, globalResource.ID, globalResource.Namespace, globalResource.Kind, globalResource.Name,
+			globalResource.APIVersion, globalResource.DesiredSpec, globalResource.Generation, globalResource.Revision).
 		Error
 
 	if err != nil {

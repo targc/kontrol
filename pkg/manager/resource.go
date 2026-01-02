@@ -8,7 +8,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/targc/kontrol/pkg/models"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 // ResourceManager provides programmatic CRUD operations for resources
@@ -299,15 +298,17 @@ func (m *ResourceManager) Upsert(ctx context.Context, req CreateResourceRequest)
 
 	err := m.DB.
 		WithContext(ctx).
-		Clauses(clause.OnConflict{
-			OnConstraint: "idx_k_resources_unique_key",
-			DoUpdates: clause.Assignments(map[string]interface{}{
-				"api_version":  req.APIVersion,
-				"desired_spec": req.DesiredSpec,
-				"revision":     gorm.Expr("k_resources.revision + 1"),
-			}),
-		}).
-		Create(&resource).
+		Exec(`
+			INSERT INTO k_resources (id, cluster_id, namespace, kind, name, api_version, desired_spec, generation, revision, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+			ON CONFLICT (cluster_id, namespace, kind, name) WHERE deleted_at IS NULL
+			DO UPDATE SET
+				api_version = EXCLUDED.api_version,
+				desired_spec = EXCLUDED.desired_spec,
+				revision = k_resources.revision + 1,
+				updated_at = NOW()
+		`, resource.ID, resource.ClusterID, resource.Namespace, resource.Kind, resource.Name,
+			resource.APIVersion, resource.DesiredSpec, resource.Generation, resource.Revision).
 		Error
 
 	if err != nil {
