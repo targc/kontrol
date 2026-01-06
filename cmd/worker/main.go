@@ -7,8 +7,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/targc/kontrol/pkg/apiclient"
 	"github.com/targc/kontrol/pkg/config"
-	"github.com/targc/kontrol/pkg/database"
 	"github.com/targc/kontrol/pkg/k8s"
 	"github.com/targc/kontrol/pkg/worker"
 )
@@ -19,26 +19,14 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	cfg := config.Load(ctx)
+	cfg := config.LoadWorkerConfig(ctx)
 
 	k8s.InitSupportedGVRs(cfg.SupportedGVRs)
 	log.Printf("Watching %d GVRs", len(k8s.SupportedGVRs))
 
-	db, err := database.Connect(cfg)
+	client := apiclient.NewClient(cfg.APIURL, cfg.APIKey, cfg.ClusterID)
 
-	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
-	}
-
-	if cfg.AutoMigrate {
-		err = database.AutoMigrate(db)
-
-		if err != nil {
-			log.Fatalf("Failed to run migrations: %v", err)
-		}
-	}
-
-	w, err := worker.NewWorker(ctx, db, cfg.ClusterID, cfg.Kubeconfig)
+	w, err := worker.NewWorker(ctx, client, cfg.ClusterID, cfg.Kubeconfig)
 
 	if err != nil {
 		log.Fatalf("Failed to create worker: %v", err)

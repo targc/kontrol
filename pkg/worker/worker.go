@@ -5,16 +5,14 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/targc/kontrol/pkg/apiclient"
 	"github.com/targc/kontrol/pkg/global_syncer"
-	"github.com/targc/kontrol/pkg/models"
 	"github.com/targc/kontrol/pkg/reconciler"
 	"github.com/targc/kontrol/pkg/watcher"
-	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 type Worker struct {
-	DB           *gorm.DB
+	Client       *apiclient.Client
 	ClusterID    string
 	Kubeconfig   string
 	watcher      *watcher.Watcher
@@ -23,14 +21,9 @@ type Worker struct {
 	cancel       context.CancelFunc
 }
 
-func NewWorker(ctx context.Context, db *gorm.DB, clusterID, kubeconfig string) (*Worker, error) {
-	cluster := models.Cluster{ID: clusterID}
-
-	err := db.
-		WithContext(ctx).
-		Clauses(clause.OnConflict{DoNothing: true}).
-		Create(&cluster).
-		Error
+func NewWorker(ctx context.Context, client *apiclient.Client, clusterID, kubeconfig string) (*Worker, error) {
+	// Register cluster with API
+	err := client.RegisterCluster(ctx)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to register cluster: %w", err)
@@ -38,22 +31,22 @@ func NewWorker(ctx context.Context, db *gorm.DB, clusterID, kubeconfig string) (
 
 	log.Printf("[Worker] Registered cluster: %s", clusterID)
 
-	w, err := watcher.NewWatcher(db, clusterID, kubeconfig)
+	w, err := watcher.NewWatcher(client, clusterID, kubeconfig)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create watcher: %w", err)
 	}
 
-	r, err := reconciler.NewReconciler(db, clusterID, kubeconfig)
+	r, err := reconciler.NewReconciler(client, clusterID, kubeconfig)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create reconciler: %w", err)
 	}
 
-	gs := global_syncer.NewGlobalSyncer(db, clusterID)
+	gs := global_syncer.NewGlobalSyncer(client, clusterID)
 
 	return &Worker{
-		DB:           db,
+		Client:       client,
 		ClusterID:    clusterID,
 		Kubeconfig:   kubeconfig,
 		watcher:      w,

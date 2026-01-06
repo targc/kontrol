@@ -10,10 +10,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/targc/kontrol/pkg/apiclient"
 	"github.com/targc/kontrol/pkg/k8s"
-	"github.com/targc/kontrol/pkg/models"
-	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -22,12 +20,12 @@ import (
 )
 
 type Watcher struct {
-	DB            *gorm.DB
+	Client        *apiclient.Client
 	ClusterID     string
 	DynamicClient dynamic.Interface
 }
 
-func NewWatcher(db *gorm.DB, clusterID, kubeconfig string) (*Watcher, error) {
+func NewWatcher(client *apiclient.Client, clusterID, kubeconfig string) (*Watcher, error) {
 	config, err := k8s.BuildConfig(kubeconfig)
 
 	if err != nil {
@@ -41,7 +39,7 @@ func NewWatcher(db *gorm.DB, clusterID, kubeconfig string) (*Watcher, error) {
 	}
 
 	return &Watcher{
-		DB:            db,
+		Client:        client,
 		ClusterID:     clusterID,
 		DynamicClient: dynamicClient,
 	}, nil
@@ -135,41 +133,6 @@ func (w *Watcher) upsertCurrentState(ctx context.Context, resourceID uuid.UUID, 
 	generation, _ := strconv.Atoi(kontrolGeneration)
 	revision, _ := strconv.Atoi(kontrolRevision)
 
-	tx := w.DB.WithContext(ctx).Begin()
-	defer tx.Rollback()
-
-	var currentState models.ResourceCurrentState
-
-	err := tx.
-		Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("resource_id = ?", resourceID).
-		First(&currentState).
-		Error
-
-	if err == gorm.ErrRecordNotFound {
-		currentState = models.ResourceCurrentState{
-			ID:         uuid.Must(uuid.NewV7()),
-			ResourceID: resourceID,
-		}
-
-		err = tx.Create(&currentState).Error
-	}
-
-	if err != nil {
-		log.Printf("[Watcher] Failed to get/create current_state for resource %s: %v", resourceID, err)
-		return
-	}
-
-	if currentState.K8sResourceVersion == k8sResourceVersion {
-		err = tx.Commit().Error
-
-		if err != nil {
-			log.Printf("[Watcher] Failed to commit transaction for resource %s: %v", resourceID, err)
-		}
-
-		return
-	}
-
 	specBytes, err := json.Marshal(obj.Object["spec"])
 
 	if err != nil {
@@ -177,25 +140,15 @@ func (w *Watcher) upsertCurrentState(ctx context.Context, resourceID uuid.UUID, 
 		return
 	}
 
-	err = tx.
-		Model(&currentState).
-		Updates(map[string]interface{}{
-			"spec":                 specBytes,
-			"generation":           generation,
-			"revision":             revision,
-			"k8s_resource_version": k8sResourceVersion,
-		}).
-		Error
+	err = w.Client.UpsertCurrentState(ctx, resourceID, &apiclient.UpsertCurrentStateRequest{
+		Spec:               specBytes,
+		Generation:         generation,
+		Revision:           revision,
+		K8sResourceVersion: k8sResourceVersion,
+	})
 
 	if err != nil {
 		log.Printf("[Watcher] Failed to update current_state for resource %s: %v", resourceID, err)
-		return
-	}
-
-	err = tx.Commit().Error
-
-	if err != nil {
-		log.Printf("[Watcher] Failed to commit transaction for resource %s: %v", resourceID, err)
 		return
 	}
 
@@ -205,12 +158,7 @@ func (w *Watcher) upsertCurrentState(ctx context.Context, resourceID uuid.UUID, 
 func (w *Watcher) deleteCurrentState(ctx context.Context, resourceID uuid.UUID) {
 	log.Printf("[Watcher] Resource %s deleted from K8s, removing current_state", resourceID)
 
-	err := w.DB.
-		WithContext(ctx).
-		Unscoped().
-		Where("resource_id = ?", resourceID).
-		Delete(&models.ResourceCurrentState{}).
-		Error
+	err := w.Client.DeleteCurrentState(ctx, resourceID)
 
 	if err != nil {
 		log.Printf("[Watcher] Failed to delete current_state for resource %s: %v", resourceID, err)

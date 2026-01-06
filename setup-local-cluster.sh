@@ -29,3 +29,7 @@ REGISTRY=k3d-registry.localhost:5000
 mkdir -p ./tmp || true
 
 k3d kubeconfig get kontrol-cluster-local > ./tmp/k3d-local-kubeconfig.yaml
+
+docker compose down -v
+
+docker compose up -d --wait

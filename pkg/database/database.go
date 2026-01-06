@@ -4,15 +4,14 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/targc/kontrol/pkg/config"
 	"github.com/targc/kontrol/pkg/models"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
-func Connect(cfg *config.Config) (*gorm.DB, error) {
-	db, err := gorm.Open(postgres.Open(cfg.DBURL), &gorm.Config{
+func Connect(dbURL string) (*gorm.DB, error) {
+	db, err := gorm.Open(postgres.Open(dbURL), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Info),
 	})
 
@@ -30,6 +29,7 @@ func AutoMigrate(db *gorm.DB) error {
 
 	err := db.AutoMigrate(
 		&models.Cluster{},
+		&models.ClusterAPIKey{},
 		&models.Resource{},
 		&models.ResourceCurrentState{},
 		&models.ResourceAppliedState{},
